@@ -103,7 +103,7 @@ print("updated build.gradle.kts")
 
 # App module: compile against Android 16 while intentionally keeping targetSdk 34,
 # which remains the Android TV submission floor. Kotlin 2.x uses the Compose plugin,
-# so the legacy composeOptions/compiler-extension block must go.
+# so the legacy composeOptions/compiler-extension block and kotlinOptions DSL must go.
 app_build = ROOT / "app/build.gradle.kts"
 text = app_build.read_text(encoding="utf-8")
 if "alias(libs.plugins.compose.compiler)" not in text:
@@ -118,6 +118,24 @@ text = re.sub(
     "\n",
     text,
 )
+# Kotlin 2.3 treats the old kotlinOptions DSL as an error. Remove the module's legacy
+# block and configure compilerOptions via the Kotlin Gradle plugin instead.
+text = re.sub(
+    r"\n    kotlinOptions \{\n        jvmTarget = \"17\"\n        freeCompilerArgs \+= listOf\(\n            \"-opt-in=androidx\.tv\.material3\.ExperimentalTvMaterial3Api\",\n            \"-opt-in=androidx\.tv\.foundation\.ExperimentalTvFoundationApi\",\n        \)\n    \}\n",
+    "\n",
+    text,
+)
+if "kotlin {\n    compilerOptions {" not in text:
+    text += """
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.add("-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api")
+        freeCompilerArgs.add("-opt-in=androidx.tv.foundation.ExperimentalTvFoundationApi")
+    }
+}
+"""
 app_build.write_text(text, encoding="utf-8")
 print("updated app/build.gradle.kts")
 
