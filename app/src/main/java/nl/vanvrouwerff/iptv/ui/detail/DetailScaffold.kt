@@ -36,8 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyListScope
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -62,7 +62,7 @@ fun DetailScaffold(
     meta: String?,
     headerExtra: @Composable ColumnScope.() -> Unit = {},
     actions: @Composable RowScope.() -> Unit,
-    sections: TvLazyListScope.() -> Unit,
+    sections: LazyListScope.() -> Unit,
 ) {
     val kenBurns = rememberInfiniteTransition(label = "detail-ken-burns")
     val backdropScale by kenBurns.animateFloat(
@@ -112,7 +112,7 @@ fun DetailScaffold(
             ),
         )
 
-        TvLazyColumn(
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 48.dp),
         ) {
@@ -176,7 +176,7 @@ fun DetailScaffold(
 }
 
 /** One titled block below the header ("Verhaal", "Cast", "Vergelijkbaar", …). */
-fun TvLazyListScope.detailSection(
+fun LazyListScope.detailSection(
     key: String,
     title: String,
     content: @Composable () -> Unit,

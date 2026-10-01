@@ -34,9 +34,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyListState
-import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -76,7 +76,7 @@ fun ChannelListOverlay(
     val startIndex = remember(groupIndex, groups) {
         group.channels.indexOfFirst { it.id == currentChannelId }.coerceAtLeast(0)
     }
-    val listState = remember(groupIndex, groups) { TvLazyListState(startIndex, 0) }
+    val listState = remember(groupIndex, groups) { LazyListState(startIndex, 0) }
     val focusTarget = remember(groupIndex, groups) { FocusRequester() }
     LaunchedEffect(groupIndex, groups) {
         androidx.compose.runtime.withFrameNanos { }
@@ -132,7 +132,7 @@ fun ChannelListOverlay(
             color = IptvPalette.TextTertiary,
             modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
         )
-        TvLazyColumn(
+        LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),

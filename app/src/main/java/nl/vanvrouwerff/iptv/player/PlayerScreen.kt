@@ -58,8 +58,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -758,7 +758,7 @@ private fun TracksOverlay(
         if (audioRows.isEmpty()) {
             EmptyTrackHint(stringResource(R.string.player_audio_empty))
         } else {
-            TvLazyColumn(
+            LazyColumn(
                 modifier = Modifier.fillMaxWidth().height(140.dp),
                 contentPadding = PaddingValues(vertical = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -799,7 +799,7 @@ private fun TracksOverlay(
                 }
             }
         }
-        TvLazyColumn(
+        LazyColumn(
             modifier = Modifier.fillMaxWidth().height(140.dp),
             contentPadding = PaddingValues(vertical = 2.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),

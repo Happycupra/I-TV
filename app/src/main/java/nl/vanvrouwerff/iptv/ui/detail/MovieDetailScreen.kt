@@ -55,8 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
@@ -195,7 +195,7 @@ private fun DetailBody(
         }
         if (state.castList.isNotEmpty()) {
             detailSection(key = "cast", title = context.getString(R.string.rail_cast)) {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.castList, key = { it.id }) { member -> CastAvatar(member) }
                 }
             }
@@ -205,7 +205,7 @@ private fun DetailBody(
                 key = "similar",
                 title = context.getString(R.string.rail_more_like_this),
             ) {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.similar, key = { it.id }) { ch ->
                         RelatedCard(channel = ch, onClick = { onPickRelated(ch) })
                     }
@@ -215,7 +215,7 @@ private fun DetailBody(
                 key = "related",
                 title = context.getString(R.string.rail_related, channel.groupTitle),
             ) {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.related, key = { it.id }) { ch ->
                         RelatedCard(channel = ch, onClick = { onPickRelated(ch) })
                     }

@@ -28,11 +28,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.grid.TvGridCells
-import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
-import androidx.tv.foundation.lazy.grid.items
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import nl.vanvrouwerff.iptv.R
@@ -92,9 +92,9 @@ fun CategoriesScreen(
         Row(modifier = Modifier.fillMaxSize()) {
             val selectedIndex = state.categories.indexOf(state.selected).coerceAtLeast(0)
             val listState = remember(state.categories.isNotEmpty()) {
-                androidx.tv.foundation.lazy.list.TvLazyListState(selectedIndex, 0)
+                androidx.compose.foundation.lazy.LazyListState(selectedIndex, 0)
             }
-            TvLazyColumn(
+            LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .width(300.dp)
@@ -127,8 +127,8 @@ fun CategoriesScreen(
                     )
                 }
             } else androidx.compose.runtime.key(state.selected) {
-                TvLazyVerticalGrid(
-                    columns = if (type == ContentType.TV) TvGridCells.Adaptive(220.dp) else TvGridCells.Adaptive(168.dp),
+                LazyVerticalGrid(
+                    columns = if (type == ContentType.TV) GridCells.Adaptive(220.dp) else GridCells.Adaptive(168.dp),
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp, start = 12.dp, end = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),

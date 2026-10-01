@@ -40,9 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -95,7 +95,7 @@ fun ProfilesScreen(
                 val defaultNameFormat = stringResource(R.string.profiles_default_new_name)
                 val editing = state.editing
                 if (editing != null) {
-                    // Edit mode takes over the body: hiding the TvLazyColumn avoids the
+                    // Edit mode takes over the body: hiding the LazyColumn avoids the
                     // focus tug-of-war where the lazy column kept D-pad focus trapped on
                     // the "Add profile" / "Rename" button that opened the panel, so the
                     // user could never reach Save.
@@ -123,7 +123,7 @@ fun ProfilesScreen(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 } else {
-                    TvLazyColumn(
+                    LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         contentPadding = PaddingValues(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -342,7 +342,7 @@ private fun EditingPanel(
             style = MaterialTheme.typography.labelMedium,
             color = IptvPalette.TextSecondary,
         )
-        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ProfileColorChoices, key = { it }) { argb ->
                 ColorSwatch(
                     argb = argb,
@@ -356,7 +356,7 @@ private fun EditingPanel(
             style = MaterialTheme.typography.labelMedium,
             color = IptvPalette.TextSecondary,
         )
-        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ProfileEmojiChoices, key = { it ?: "__none__" }) { emoji ->
                 EmojiChip(
                     emoji = emoji,

@@ -36,9 +36,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -110,7 +110,7 @@ fun GuideScreen(
                 Text(stringResource(R.string.channels_empty_type_tv), color = IptvPalette.TextSecondary)
                 return@Column
             }
-            TvLazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(state.groups, key = { _, g -> g.title }) { i, g ->
                     Box(Modifier.width(200.dp)) {
                         CategoryItem(
@@ -136,7 +136,7 @@ fun GuideScreen(
                         androidx.compose.runtime.withFrameNanos { }
                         runCatching { firstFocus.requestFocus() }
                     }
-                    TvLazyColumn(
+                    LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         contentPadding = PaddingValues(bottom = 32.dp),
                     ) {
