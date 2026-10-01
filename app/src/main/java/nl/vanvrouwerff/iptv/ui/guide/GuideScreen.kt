@@ -198,7 +198,7 @@ private fun dayLabel(ms: Long): String {
         today -> stringResource(R.string.guide_today)
         today.minusDays(1) -> stringResource(R.string.guide_yesterday)
         today.plusDays(1) -> stringResource(R.string.guide_tomorrow)
-        else -> SimpleDateFormat("EEEE d MMMM", Locale("nl", "NL")).format(Date(ms))
+        else -> SimpleDateFormat("EEEE d MMMM", Locale.forLanguageTag("de-CH")).format(Date(ms))
     }
     return "$name · $time"
 }

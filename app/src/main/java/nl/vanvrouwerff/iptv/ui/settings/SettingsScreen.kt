@@ -356,7 +356,7 @@ private fun TestResultLine(result: SourceTestResult) {
 }
 
 private fun formatCount(n: Int): String =
-    java.text.NumberFormat.getIntegerInstance(java.util.Locale("nl", "NL")).format(n)
+    java.text.NumberFormat.getIntegerInstance(java.util.Locale.forLanguageTag("de-CH")).format(n)
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -507,6 +507,6 @@ private fun aspectLabel(value: String): String = stringResource(
 private fun languageLabel(code: String): String = when (code) {
     "" -> stringResource(R.string.settings_lang_none)
     "off" -> stringResource(R.string.settings_lang_off)
-    else -> java.util.Locale(code).getDisplayLanguage(java.util.Locale("nl", "NL"))
+    else -> java.util.Locale(code).getDisplayLanguage(java.util.Locale.forLanguageTag("de-CH"))
         .replaceFirstChar { it.uppercase() }
 }

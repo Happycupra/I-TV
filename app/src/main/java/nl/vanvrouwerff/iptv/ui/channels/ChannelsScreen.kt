@@ -2970,7 +2970,7 @@ private fun heroButtonColors() = androidx.tv.material3.ButtonDefaults.colors(
 @Composable
 private fun importProgressLabel(progress: nl.vanvrouwerff.iptv.data.repo.ImportProgress?): String? {
     if (progress == null) return null
-    val count = java.text.NumberFormat.getIntegerInstance(java.util.Locale("nl", "NL")).format(progress.count)
+    val count = java.text.NumberFormat.getIntegerInstance(java.util.Locale.forLanguageTag("de-CH")).format(progress.count)
     return when (progress.stage) {
         nl.vanvrouwerff.iptv.data.repo.ImportProgress.Stage.Downloading -> stringResource(R.string.import_downloading)
         nl.vanvrouwerff.iptv.data.repo.ImportProgress.Stage.Live -> stringResource(R.string.import_live, count)
