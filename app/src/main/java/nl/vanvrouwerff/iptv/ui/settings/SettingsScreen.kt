@@ -171,6 +171,41 @@ fun SettingsScreen(
                             Text(stringResource(R.string.settings_auto_refresh_hour_next))
                         }
                     }
+                    RefreshCountdown(hour = state.autoRefreshHour)
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.settings_maintenance_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = IptvPalette.TextSecondary,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = vm::clearCache,
+                        enabled = !state.maintenanceRunning && !state.refreshing,
+                    ) {
+                        Text(stringResource(R.string.settings_clear_cache))
+                    }
+                    Button(
+                        onClick = vm::softReset,
+                        enabled = !state.maintenanceRunning && !state.refreshing,
+                    ) {
+                        Text(
+                            if (state.maintenanceRunning) stringResource(R.string.status_refreshing)
+                            else stringResource(R.string.settings_soft_reset),
+                        )
+                    }
+                }
+                state.maintenanceMessage?.let { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = IptvPalette.AccentSoft,
+                    )
                 }
             }
 

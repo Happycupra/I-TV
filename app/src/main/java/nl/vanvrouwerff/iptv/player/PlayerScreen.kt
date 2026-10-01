@@ -98,6 +98,7 @@ fun PlayerScreen(
     onPreviousChannel: () -> Unit = {},
     onStartOver: () -> Unit = {},
     onControlsInteraction: () -> Unit = {},
+    onSurfaceTap: () -> Unit = {},
     onSelectChannelGroup: (Int) -> Unit = {},
     onZapFromList: (ChannelGroup, nl.vanvrouwerff.iptv.data.Channel) -> Unit = { _, _ -> },
     onPlayerViewReady: (PlayerView) -> Unit,
@@ -173,6 +174,8 @@ fun PlayerScreen(
                     errorState != null || nextEpisode != null
                 view.isFocusable = !panelOpen
                 view.isFocusableInTouchMode = !panelOpen
+                view.isClickable = !panelOpen
+                view.setOnClickListener { if (!panelOpen) onSurfaceTap() }
                 view.descendantFocusability = if (panelOpen) {
                     ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 } else {

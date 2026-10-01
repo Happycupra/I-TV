@@ -33,6 +33,8 @@ data class SettingsUiState(
     val validationError: String? = null,
     val refreshing: Boolean = false,
     val refreshError: String? = null,
+    val maintenanceRunning: Boolean = false,
+    val maintenanceMessage: String? = null,
     val autoRefreshEnabled: Boolean = false,
     val autoRefreshHour: Int = 3,
     val trailersAutoplay: Boolean = true,
@@ -243,6 +245,48 @@ class SettingsViewModel : ViewModel() {
     fun refreshNow() {
         if (_state.value.refreshing) return
         app.appScope.launch { app.refreshUseCase() }
+    }
+
+    /** Clear bounded HTTP/image caches without changing user data or the catalogue. */
+    fun clearCache() {
+        if (_state.value.maintenanceRunning || _state.value.refreshing) return
+        _state.update { it.copy(maintenanceRunning = true, maintenanceMessage = null) }
+        app.appScope.launch {
+            val result = runCatching { app.clearTransientCaches() }
+            _state.update {
+                it.copy(
+                    maintenanceRunning = false,
+                    maintenanceMessage = app.getString(
+                        if (result.isSuccess) R.string.settings_cache_cleared
+                        else R.string.settings_maintenance_failed,
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Safe recovery path for stale/laggy catalogues: clear disposable caches and force a
+     * source re-download. Existing DB rows stay visible until the fresh import succeeds.
+     */
+    fun softReset() {
+        if (_state.value.maintenanceRunning || _state.value.refreshing) return
+        _state.update { it.copy(maintenanceRunning = true, maintenanceMessage = null) }
+        app.appScope.launch {
+            val result = runCatching {
+                app.clearTransientCaches()
+                app.refreshUseCase(force = true).getOrThrow()
+            }
+            _state.update {
+                it.copy(
+                    maintenanceRunning = false,
+                    maintenanceMessage = app.getString(
+                        if (result.isSuccess) R.string.settings_soft_reset_done
+                        else R.string.settings_maintenance_failed,
+                    ),
+                )
+            }
+        }
     }
 
     private companion object {

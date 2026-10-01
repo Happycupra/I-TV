@@ -217,6 +217,9 @@ class PlayerActivity : ComponentActivity() {
                             startOver()
                         },
                         onControlsInteraction = ::bumpControlsTimer,
+                        onSurfaceTap = {
+                            if (controlsVisible) hideControls() else showControls()
+                        },
                         subtitleDelayMs = subtitleDelayMs,
                         displayedCues = displayedCues,
                         statsOverlayVisible = statsOverlayVisible,
