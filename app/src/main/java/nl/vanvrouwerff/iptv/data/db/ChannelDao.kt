@@ -72,8 +72,17 @@ interface ChannelDao {
     @Query("DELETE FROM channels")
     suspend fun clearChannels()
 
+    @Query("DELETE FROM channels WHERE type = :type")
+    suspend fun clearChannelsByType(type: String)
+
+    @Query("SELECT COUNT(*) FROM channels WHERE type = :type")
+    suspend fun channelCountByType(type: String): Int
+
     @Query("DELETE FROM categories")
     suspend fun clearCategories()
+
+    @Query("DELETE FROM categories WHERE type = :type")
+    suspend fun clearCategoriesByType(type: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChannels(channels: List<ChannelEntity>)
@@ -83,6 +92,24 @@ interface ChannelDao {
 
     @Query("SELECT id, addedAt FROM channels")
     suspend fun getAddedAtSnapshot(): List<ChannelAddedAtRow>
+
+    @Query("SELECT id, addedAt FROM channels WHERE type = :type")
+    suspend fun getAddedAtSnapshotByType(type: String): List<ChannelAddedAtRow>
+
+    @Transaction
+    suspend fun replaceType(type: String, channels: List<ChannelEntity>, categories: List<CategoryEntity>) {
+        val now = System.currentTimeMillis()
+        val existing = getAddedAtSnapshotByType(type).associate { it.id to it.addedAt }
+        val firstImportForType = existing.isEmpty()
+        val merged = channels.map { ch ->
+            existing[ch.id]?.let { ch.copy(addedAt = it) }
+                ?: ch.copy(addedAt = if (firstImportForType) 0L else now)
+        }
+        clearChannelsByType(type)
+        clearCategoriesByType(type)
+        insertCategories(categories)
+        merged.chunked(1000).forEach { insertChannels(it) }
+    }
 
     /**
      * Channels added in the past [windowMs] milliseconds, sorted newest-first, capped to

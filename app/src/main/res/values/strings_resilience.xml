@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_health_online">● Online</string>
+    <string name="playlist_health_cached">● Gespeicherter Stand</string>
+    <string name="playlist_health_problem">● Anbieter-Störung</string>
+    <string name="playlist_health_refreshing">● Aktualisierung…</string>
+    <string name="playlist_health_ready">● Bereit</string>
+    <string name="playlist_health_no_error">kein Fehler</string>
+    <string name="playlist_health_detail">Live: %1$d · Filme: %2$d · Serien: %3$d\nFehlerfolge: %4$d\nLetzter Fehler: %5$s\n%6$s</string>
+    <string name="playlist_recovery_preserved">Anbieter nicht vollständig erreichbar. Gespeicherter Stand bleibt erhalten.</string>
+</resources>

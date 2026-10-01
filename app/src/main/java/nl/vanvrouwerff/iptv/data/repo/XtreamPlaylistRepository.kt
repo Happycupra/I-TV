@@ -37,8 +37,6 @@ class XtreamPlaylistRepository(
     private fun <T> applyFilter(items: List<T>, category: (T) -> String?, label: String): List<T> {
         if (!categoryFilter.isEnabled) return items
         val kept = items.filter { categoryFilter.accepts(category(it)) }
-        // A provider that doesn't use the prefix convention would otherwise end up with an
-        // empty catalogue; better to show everything than nothing.
         if (kept.isEmpty() && items.isNotEmpty()) {
             Log.w(TAG, "$label: category filter matched nothing, keeping all ${items.size}")
             return items
@@ -51,70 +49,101 @@ class XtreamPlaylistRepository(
         etag: String?,
         lastModified: String?,
         onProgress: (ImportProgress) -> Unit,
+        onSectionReady: suspend (PlaylistSectionResult) -> Unit,
     ): PlaylistSnapshot = withContext(Dispatchers.IO) {
         onProgress(ImportProgress(ImportProgress.Stage.Downloading, 0))
-        // Sequential on purpose. Providers can return 30-60 MB per response for VOD/series;
-        // parallelising means those bodies sit in memory at the same time and blow the heap.
-        // Live is the backbone; VOD and series are best-effort.
-        // All of it runs on IO so streaming reads (which touch the socket) don't hit the main thread.
-        val liveCats = api.getLiveCategories(username, password)
-        val liveStreams = api.getLiveStreams(username, password)
-        val live = mapLive(liveCats, liveStreams)
-        Log.i(TAG, "Live: ${live.size} channels kept, ${liveCats.size} categories")
+
+        // Sequential on purpose: VOD/series responses can be tens of MB on TV boxes.
+        // Live is required and retried. If it still fails, nothing is committed and the
+        // local known-good catalogue remains intact.
+        val live = retryProviderCall("Xtream Live") {
+            val cats = api.getLiveCategories(username, password)
+            val streams = api.getLiveStreams(username, password)
+            mapLive(cats, streams)
+        }
+        Log.i(TAG, "Live: ${live.size} channels")
         onProgress(ImportProgress(ImportProgress.Stage.Live, live.size))
+        onSectionReady(PlaylistSectionResult(ContentType.TV, live))
 
-        val vod: List<Channel> = runCatching {
-            val cats = api.getVodCategories(username, password)
-            val streams = api.getVodStreamsStream(username, password)
-                .useStream { ListSerializer(XtreamVodStream.serializer()).decodeFrom(it) }
-            val mapped = mapVod(cats, streams)
-            Log.i(TAG, "VOD: ${mapped.size} movies kept (of ${streams.size}), ${cats.size} categories")
-            onProgress(ImportProgress(ImportProgress.Stage.Movies, mapped.size))
-            mapped
-        }.onFailure { Log.e(TAG, "VOD fetch/decode failed", it) }
-            .getOrElse { emptyList() }
+        var vodError: String? = null
+        val vod = runCatching {
+            retryProviderCall("Xtream VOD") {
+                val cats = api.getVodCategories(username, password)
+                val streams = api.getVodStreamsStream(username, password)
+                    .useStream { ListSerializer(XtreamVodStream.serializer()).decodeFrom(it) }
+                mapVod(cats, streams)
+            }
+        }.fold(
+            onSuccess = { mapped ->
+                Log.i(TAG, "VOD: ${mapped.size} movies")
+                onProgress(ImportProgress(ImportProgress.Stage.Movies, mapped.size))
+                onSectionReady(PlaylistSectionResult(ContentType.MOVIE, mapped))
+                mapped
+            },
+            onFailure = { error ->
+                vodError = safeError(error)
+                Log.e(TAG, "VOD fetch/decode failed; preserving known-good movies", error)
+                onSectionReady(PlaylistSectionResult(ContentType.MOVIE, error = vodError))
+                emptyList()
+            },
+        )
 
-        val series: List<Channel> = runCatching {
-            val cats = api.getSeriesCategories(username, password)
-            val list = api.getSeriesStream(username, password)
-                .useStream { ListSerializer(XtreamSeries.serializer()).decodeFrom(it) }
-            val mapped = mapSeries(cats, list)
-            Log.i(TAG, "Series: ${mapped.size} shows kept (of ${list.size}), ${cats.size} categories")
-            onProgress(ImportProgress(ImportProgress.Stage.Series, mapped.size))
-            mapped
-        }.onFailure { Log.e(TAG, "Series fetch/decode failed", it) }
-            .getOrElse { emptyList() }
+        var seriesError: String? = null
+        val series = runCatching {
+            retryProviderCall("Xtream Series") {
+                val cats = api.getSeriesCategories(username, password)
+                val list = api.getSeriesStream(username, password)
+                    .useStream { ListSerializer(XtreamSeries.serializer()).decodeFrom(it) }
+                mapSeries(cats, list)
+            }
+        }.fold(
+            onSuccess = { mapped ->
+                Log.i(TAG, "Series: ${mapped.size} shows")
+                onProgress(ImportProgress(ImportProgress.Stage.Series, mapped.size))
+                onSectionReady(PlaylistSectionResult(ContentType.SERIES, mapped))
+                mapped
+            },
+            onFailure = { error ->
+                seriesError = safeError(error)
+                Log.e(TAG, "Series fetch/decode failed; preserving known-good series", error)
+                onSectionReady(PlaylistSectionResult(ContentType.SERIES, error = seriesError))
+                emptyList()
+            },
+        )
 
-        val keptChannels = live + vod + series
-
-        // EPG is best-effort: if the provider has no xmltv endpoint, a decompression
-        // hiccup occurs, or parsing fails, we still want live/vod/series to land.
-        // Only keep programmes for channels we actually kept — dropping ~80% of channels
-        // would otherwise still leave their EPG entries taking ~150MB of DB space for no
-        // reason (they'd never be rendered).
         val keptEpgIds = live.mapNotNullTo(HashSet()) { it.epgChannelId }
         val programmes: List<ProgrammeEntity> = runCatching {
-            api.getXmltv(username, password).useStream { stream ->
-                XmltvParser.parse(stream) { key -> key in keptEpgIds }
+            retryProviderCall("Xtream EPG", longArrayOf(1_500L)) {
+                api.getXmltv(username, password).useStream { stream ->
+                    XmltvParser.parse(stream) { key -> key in keptEpgIds }
+                }
+            }
+        }.onSuccess {
+            Log.i(TAG, "EPG: ${it.size} programmes")
+        }.onFailure {
+            // EPG never invalidates catalogue data.
+            Log.e(TAG, "EPG fetch/parse failed; keeping existing EPG", it)
+        }.getOrElse { emptyList() }
+
+        PlaylistSnapshot(channels = live + vod + series, programmes = programmes).also {
+            if (vodError != null || seriesError != null) {
+                Log.w(TAG, "Partial Xtream refresh completed with preserved partitions")
             }
         }
-            .onSuccess { Log.i(TAG, "EPG: ${it.size} programmes kept for subscribed channels") }
-            .onFailure { Log.e(TAG, "EPG fetch/parse failed", it) }
-            .getOrElse { emptyList() }
-
-        PlaylistSnapshot(channels = keptChannels, programmes = programmes)
     }
 
     override suspend fun fetchProgrammes(epgKeys: Set<String>): List<ProgrammeEntity> =
         withContext(Dispatchers.IO) {
-            api.getXmltv(username, password).useStream { stream ->
-                XmltvParser.parse(stream) { key -> key in epgKeys }
+            retryProviderCall("Xtream EPG", longArrayOf(1_500L)) {
+                api.getXmltv(username, password).useStream { stream ->
+                    XmltvParser.parse(stream) { key -> key in epgKeys }
+                }
             }
         }
 
-    private companion object {
-        const val TAG = "XtreamRepo"
-    }
+    private fun safeError(t: Throwable): String = HttpClient.redact(
+        t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName,
+    ).take(180)
 
     @OptIn(ExperimentalSerializationApi::class)
     private fun <T> kotlinx.serialization.DeserializationStrategy<T>.decodeFrom(stream: java.io.InputStream): T =
@@ -123,47 +152,37 @@ class XtreamPlaylistRepository(
     private inline fun <T> ResponseBody.useStream(block: (java.io.InputStream) -> T): T =
         use { body -> body.byteStream().use(block) }
 
-    private fun mapLive(
-        categories: List<XtreamCategory>,
-        streams: List<XtreamLiveStream>,
-    ): List<Channel> {
+    private fun mapLive(categories: List<XtreamCategory>, streams: List<XtreamLiveStream>): List<Channel> {
         val names = categories.associate { it.categoryId.asScalarString() to it.categoryName }
         val groupOf = { s: XtreamLiveStream -> s.categoryId?.asScalarString()?.let(names::get) }
         return applyFilter(streams, groupOf, "Live").map { s ->
-            val groupTitle = groupOf(s)
             val streamId = s.streamId.asScalarString()
             Channel(
                 id = "xt-live:$streamId",
                 name = s.name,
                 logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
-                groupTitle = groupTitle,
+                groupTitle = groupOf(s),
                 streamUrl = XtreamUrls.stream(host, "live", username, password, "$streamId.ts"),
                 epgChannelId = s.epgChannelId?.takeIf { it.isNotBlank() },
                 type = ContentType.TV,
                 archiveDays = if (s.tvArchive?.asScalarString() == "1") {
                     s.tvArchiveDuration?.asScalarString()?.toIntOrNull()?.coerceAtLeast(0) ?: 0
-                } else {
-                    0
-                },
+                } else 0,
             )
         }
     }
 
-    private fun mapVod(
-        categories: List<XtreamCategory>,
-        streams: List<XtreamVodStream>,
-    ): List<Channel> {
+    private fun mapVod(categories: List<XtreamCategory>, streams: List<XtreamVodStream>): List<Channel> {
         val names = categories.associate { it.categoryId.asScalarString() to it.categoryName }
         val groupOf = { s: XtreamVodStream -> s.categoryId?.asScalarString()?.let(names::get) }
         return applyFilter(streams, groupOf, "VOD").map { s ->
-            val groupTitle = groupOf(s)
             val streamId = s.streamId.asScalarString()
             val ext = s.containerExtension?.takeIf { it.isNotBlank() } ?: "mp4"
             Channel(
                 id = "xt-vod:$streamId",
                 name = s.name,
                 logoUrl = s.streamIcon?.takeIf { it.isNotBlank() },
-                groupTitle = groupTitle,
+                groupTitle = groupOf(s),
                 streamUrl = XtreamUrls.stream(host, "movie", username, password, "$streamId.$ext"),
                 epgChannelId = null,
                 type = ContentType.MOVIE,
@@ -171,21 +190,16 @@ class XtreamPlaylistRepository(
         }
     }
 
-    private fun mapSeries(
-        categories: List<XtreamCategory>,
-        series: List<XtreamSeries>,
-    ): List<Channel> {
+    private fun mapSeries(categories: List<XtreamCategory>, series: List<XtreamSeries>): List<Channel> {
         val names = categories.associate { it.categoryId.asScalarString() to it.categoryName }
         val groupOf = { s: XtreamSeries -> s.categoryId?.asScalarString()?.let(names::get) }
         return applyFilter(series, groupOf, "Series").map { s ->
-            val groupTitle = groupOf(s)
             val seriesId = s.seriesId.asScalarString()
             Channel(
                 id = "xt-series:$seriesId",
                 name = s.name,
                 logoUrl = s.cover?.takeIf { it.isNotBlank() },
-                groupTitle = groupTitle,
-                // Episodes require a separate get_series_info call — deferred to stap 3.
+                groupTitle = groupOf(s),
                 streamUrl = null,
                 epgChannelId = null,
                 type = ContentType.SERIES,
@@ -195,4 +209,6 @@ class XtreamPlaylistRepository(
 
     private fun JsonElement.asScalarString(): String =
         (this as? JsonPrimitive)?.contentOrNull ?: toString().trim('"')
+
+    private companion object { const val TAG = "XtreamRepo" }
 }
