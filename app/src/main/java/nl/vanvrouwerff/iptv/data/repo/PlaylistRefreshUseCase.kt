@@ -68,7 +68,8 @@ class PlaylistRefreshUseCase(
             withContext(Dispatchers.IO) {
                 runCatching {
                     val config = settings.sourceConfig.first() ?: return@runCatching
-                    writeEpg(repository(config))
+                    val filter = settings.categoryFilter.first()
+                    writeEpg(repository(config, filter))
                 }.onFailure { Log.w(TAG, "EPG refresh failed; existing EPG retained", it) }
             }
         } finally { epgMutex.unlock() }
@@ -86,7 +87,8 @@ class PlaylistRefreshUseCase(
 
     private suspend fun refresh(force: Boolean, onCatalogueReady: () -> Unit) {
         val config = settings.sourceConfig.first() ?: error("Keine Quelle konfiguriert.")
-        val repo = repository(config)
+        val filter = settings.categoryFilter.first()
+        val repo = repository(config, filter)
         val currentSourceKey = sourceKey(config)
         val storedSourceKey = settings.catalogueSourceKey.first()
         val sourceChanged = storedSourceKey.isNotBlank() && storedSourceKey != currentSourceKey
@@ -122,7 +124,14 @@ class PlaylistRefreshUseCase(
                     return@fetch
                 }
 
-                val entities = section.channels.mapIndexed { i, c -> c.toEntity(i) }
+                // Keep the original global order (Live -> Movies -> Series) even though
+                // partitions are now committed independently.
+                val base = when (section.type) {
+                    ContentType.TV -> 0
+                    ContentType.MOVIE -> 1_000_000
+                    ContentType.SERIES -> 2_000_000
+                }
+                val entities = section.channels.mapIndexed { i, c -> c.toEntity(base + i) }
                 val categories = section.channels
                     .mapNotNull { c -> c.groupTitle?.let { it to c.type.name } }
                     .distinct()
@@ -167,18 +176,15 @@ class PlaylistRefreshUseCase(
         }
     }
 
-    private fun repository(config: SourceConfig): PlaylistRepository = when (config) {
+    private fun repository(config: SourceConfig, categoryFilter: String): PlaylistRepository = when (config) {
         is SourceConfig.M3u -> M3uPlaylistRepository(config.url, HttpClient.okHttp)
         is SourceConfig.Xtream -> XtreamPlaylistRepository(
             config.host,
             config.username,
             config.password,
-            CategoryFilter.parse(runBlockingCategoryFilter()),
+            CategoryFilter.parse(categoryFilter),
         )
     }
-
-    /** Repository construction is synchronous; category filter is cached through a one-shot Flow read. */
-    private fun runBlockingCategoryFilter(): String = kotlinx.coroutines.runBlocking { settings.categoryFilter.first() }
 
     private fun sourceKey(config: SourceConfig): String {
         val raw = when (config) {
