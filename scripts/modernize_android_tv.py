@@ -44,6 +44,7 @@ def migrate_kotlin_file(path: Path) -> None:
         "TvLazyVerticalGrid": "LazyVerticalGrid",
         "TvLazyGridState": "LazyGridState",
         "rememberTvLazyGridState": "rememberLazyGridState",
+        "Locale(\"nl\", \"NL\")": "Locale.forLanguageTag(\"de-CH\")",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -151,6 +152,7 @@ replace_file(
 )
 
 # Migrate every Kotlin source away from removed androidx.tv.foundation lazy layouts.
+# Also remove hard-coded Dutch locale formatting in favour of German (Switzerland).
 for source_root in (ROOT / "app/src/main/java", ROOT / "app/src/test/java"):
     if source_root.exists():
         for kt in source_root.rglob("*.kt"):
