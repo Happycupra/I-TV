@@ -34,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
@@ -61,13 +62,17 @@ fun ProfilesScreen(
     vm: ProfilesViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     var pendingDelete by remember { mutableStateOf<ProfileRow?>(null) }
 
     Box(modifier = Modifier.fillMaxSize().background(IptvPalette.BackgroundDeep)) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 48.dp, vertical = 32.dp),
+                    .padding(
+                        horizontal = if (compactScreen) 16.dp else 48.dp,
+                        vertical = if (compactScreen) 16.dp else 32.dp,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

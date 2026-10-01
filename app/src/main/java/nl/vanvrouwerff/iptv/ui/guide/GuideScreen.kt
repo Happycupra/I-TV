@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,13 +71,17 @@ fun GuideScreen(
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(Unit) { vm.playRequests.collect { onPlayItem(it) } }
     val state by vm.state.collectAsState()
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     BackHandler(enabled = true, onBack = onBack)
 
     Box(modifier = Modifier.fillMaxSize().background(IptvPalette.BackgroundDeep)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 48.dp, vertical = 20.dp),
+                .padding(
+                    horizontal = if (compactScreen) 12.dp else 48.dp,
+                    vertical = if (compactScreen) 12.dp else 20.dp,
+                ),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -112,7 +117,7 @@ fun GuideScreen(
             }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(state.groups, key = { _, g -> g.title }) { i, g ->
-                    Box(Modifier.width(200.dp)) {
+                    Box(Modifier.width(if (compactScreen) 140.dp else 200.dp)) {
                         CategoryItem(
                             label = DisplayNames.clean(g.title),
                             selected = i == state.groupIndex,

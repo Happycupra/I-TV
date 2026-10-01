@@ -21,6 +21,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +72,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -124,6 +127,10 @@ private const val HERO_TRAILER_DELAY_MS: Long = 2_500L
 private val HERO_HEIGHT = 340.dp
 
 private const val HERO_SWAP_FOCUS_DELAY_MS: Long = 650L
+
+@Composable
+private fun screenHorizontalPadding(): Dp =
+    if (LocalConfiguration.current.screenWidthDp < 600) 16.dp else 48.dp
 
 private data class TypeTab(val type: ContentType, val labelRes: Int, val emptyRes: Int)
 
@@ -256,6 +263,7 @@ private fun NetflixLayout(
     // Focus restore: only when this layout is freshly composed (coming back from a detail
     // screen) and only for the tab that was active then. A tab switch or cold start (no
     // memory) lands on the hero as before.
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     val initialType = remember { state.selectedType }
     val initialMemory = remember { focusMemoryFor(state.selectedType) }
     val railsListState = remember(state.selectedType) {
@@ -394,10 +402,12 @@ private fun NetflixLayout(
                         }
                     }
                 }
-                KeyHintStrip(
-                    state = state,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
+                if (!compactScreen) {
+                    KeyHintStrip(
+                        state = state,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    )
+                }
             }
             contextTarget?.let { target ->
                 val close = {
@@ -461,7 +471,7 @@ private fun KeyHintStrip(
     }
     Row(
         modifier = modifier
-            .padding(horizontal = 48.dp, vertical = 12.dp)
+            .padding(horizontal = screenHorizontalPadding(), vertical = 12.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(IptvPalette.SurfaceElevated.copy(alpha = 0.65f))
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -513,7 +523,7 @@ private fun RailsView(
     Column(modifier = Modifier.fillMaxSize()) {
         if (searchVisible || onStartManaging != null) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 48.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (searchVisible) {
@@ -777,7 +787,7 @@ private fun RecentSearchChips(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 48.dp, vertical = 4.dp),
+            .padding(horizontal = screenHorizontalPadding(), vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -860,7 +870,7 @@ private fun SearchResultsView(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(horizontal = screenHorizontalPadding(), vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         sections.forEach { (type, sectionItems) ->
@@ -933,7 +943,7 @@ private fun ManageFavoritesView(
     }
     val star = stringResource(R.string.favorites_marker)
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = screenHorizontalPadding(), vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = stringResource(R.string.favorites_manage),
@@ -1218,7 +1228,8 @@ private fun TopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 48.dp, vertical = 20.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = screenHorizontalPadding(), vertical = 20.dp)
             .onFocusChanged { onFocusChanged(it.hasFocus) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1732,7 +1743,7 @@ private fun HeroBanner(
         modifier = Modifier
             .fillMaxWidth()
             .height(HERO_HEIGHT)
-            .padding(horizontal = 48.dp)
+            .padding(horizontal = screenHorizontalPadding())
             .clip(RoundedCornerShape(24.dp))
             .background(IptvPalette.SurfaceLift),
     ) {
@@ -2104,7 +2115,7 @@ private fun RailRow(
         } else {
             LazyRow(
                 state = rowState,
-                contentPadding = PaddingValues(horizontal = 48.dp),
+                contentPadding = PaddingValues(horizontal = screenHorizontalPadding()),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 itemsIndexed(rail.channels, key = { _, ch -> ch.id }) { i, channel ->
@@ -2501,7 +2512,7 @@ private fun ChannelsSkeleton(progress: nl.vanvrouwerff.iptv.data.repo.ImportProg
     Column(modifier = Modifier.fillMaxSize()) {
         // Top-bar placeholder (title + tab pills).
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 20.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding(), vertical = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SkeletonBlock(width = 120.dp, height = 22.dp, color = block)
@@ -2517,7 +2528,7 @@ private fun ChannelsSkeleton(progress: nl.vanvrouwerff.iptv.data.repo.ImportProg
         // Hero banner placeholder, carrying the import progress on a first run.
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             SkeletonBlock(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 48.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding()),
                 width = null,
                 height = HERO_HEIGHT,
                 shape = RoundedCornerShape(24.dp),
@@ -2554,7 +2565,7 @@ private fun ChannelsSkeleton(progress: nl.vanvrouwerff.iptv.data.repo.ImportProg
                     color = block,
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 48.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding()),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     repeat(5) {
@@ -2870,7 +2881,7 @@ private fun CompactTvHero(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 48.dp)
+            .padding(horizontal = screenHorizontalPadding())
             .height(COMPACT_TV_HERO_HEIGHT)
             .clip(RoundedCornerShape(20.dp))
             .background(

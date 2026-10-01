@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,6 +60,7 @@ fun SettingsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     var pinDialog by remember { mutableStateOf(false) }
 
     // BACK goes back without saving — matches the "Terug"-labelled button below, so the
@@ -69,7 +72,10 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 64.dp, vertical = 36.dp),
+                .padding(
+                    horizontal = if (compactScreen) 16.dp else 64.dp,
+                    vertical = if (compactScreen) 16.dp else 36.dp,
+                ),
             verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
             Text(
@@ -289,7 +295,7 @@ private fun SourceSection(
         },
         singleLine = true,
         keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-        modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+        modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
     )
     if (state.xtreamUrlDetected) {
         Text(
@@ -325,7 +331,7 @@ private fun SourceSection(
             label = { androidx.compose.material3.Text(stringResource(R.string.settings_m3u_url)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-            modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+            modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
         )
         SourceType.Xtream -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(
@@ -334,7 +340,7 @@ private fun SourceSection(
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_host)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
             OutlinedTextField(
                 value = state.username,
@@ -342,7 +348,7 @@ private fun SourceSection(
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_user)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
             OutlinedTextField(
                 value = state.password,
@@ -351,7 +357,7 @@ private fun SourceSection(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, showKeyboardOnFocus = false),
-                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
             OutlinedTextField(
                 value = state.categoryFilter,
@@ -362,7 +368,7 @@ private fun SourceSection(
                 },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
         }
     }

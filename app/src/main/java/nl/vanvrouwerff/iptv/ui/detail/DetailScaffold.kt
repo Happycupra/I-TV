@@ -7,6 +7,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +67,7 @@ fun DetailScaffold(
     actions: @Composable RowScope.() -> Unit,
     sections: LazyListScope.() -> Unit,
 ) {
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     val kenBurns = rememberInfiniteTransition(label = "detail-ken-burns")
     val backdropScale by kenBurns.animateFloat(
         initialValue = 1f,
@@ -117,14 +121,18 @@ fun DetailScaffold(
             contentPadding = PaddingValues(bottom = 48.dp),
         ) {
             item(key = "__header__") {
-                Box(modifier = Modifier.fillMaxWidth().height(DETAIL_HEADER_HEIGHT)) {
+                Box(modifier = Modifier.fillMaxWidth().height(if (compactScreen) 360.dp else DETAIL_HEADER_HEIGHT)) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
-                            .padding(start = DETAIL_H_PADDING, end = 32.dp, bottom = 24.dp),
+                            .padding(
+                                start = if (compactScreen) 16.dp else DETAIL_H_PADDING,
+                                end = if (compactScreen) 16.dp else 32.dp,
+                                bottom = 24.dp,
+                            ),
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth(0.66f)) {
+                        Column(modifier = Modifier.fillMaxWidth(if (compactScreen) 0.96f else 0.66f)) {
                             eyebrow?.let {
                                 Text(
                                     text = it.uppercase(),
@@ -163,6 +171,7 @@ fun DetailScaffold(
                         }
                         Spacer(Modifier.height(18.dp))
                         Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             content = actions,
@@ -182,11 +191,13 @@ fun LazyListScope.detailSection(
     content: @Composable () -> Unit,
 ) {
     item(key = key) {
+        val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+        val horizontalPadding = if (compactScreen) 16.dp else DETAIL_H_PADDING
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(IptvPalette.BackgroundDeep)
-                .padding(start = DETAIL_H_PADDING, end = DETAIL_H_PADDING, top = 20.dp, bottom = 8.dp),
+                .padding(start = horizontalPadding, end = horizontalPadding, top = 20.dp, bottom = 8.dp),
         ) {
             Text(
                 text = title,
@@ -208,6 +219,7 @@ fun LazyListScope.detailSection(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FocusableTextBlock(text: String, footer: List<String> = emptyList()) {
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     Surface(
@@ -221,7 +233,7 @@ fun FocusableTextBlock(text: String, footer: List<String> = emptyList()) {
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         modifier = Modifier
-            .fillMaxWidth(0.75f)
+            .fillMaxWidth(if (compactScreen) 1f else 0.75f)
             .onFocusChanged { focused = it.isFocused }
             .tvFocus(focused, shape, focusedScale = 1f),
     ) {
