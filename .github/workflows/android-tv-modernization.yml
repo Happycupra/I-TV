@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
-      - feature/touch-refresh-maintenance
   workflow_dispatch:
 
 permissions:
