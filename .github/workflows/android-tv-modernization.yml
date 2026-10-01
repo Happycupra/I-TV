@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
+      - fix/android11-tv-install
   workflow_dispatch:
 
 permissions:
