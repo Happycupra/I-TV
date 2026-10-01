@@ -81,10 +81,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
-import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -259,7 +259,7 @@ private fun NetflixLayout(
     val initialMemory = remember { focusMemoryFor(state.selectedType) }
     val railsListState = remember(state.selectedType) {
         val m = initialMemory?.takeIf { state.selectedType == initialType }
-        androidx.tv.foundation.lazy.list.TvLazyListState(m?.listIndex ?: 0, m?.listOffset ?: 0)
+        androidx.compose.foundation.lazy.LazyListState(m?.listIndex ?: 0, m?.listOffset ?: 0)
     }
     val focusController = remember(state.selectedType) {
         RailFocusController(
@@ -484,8 +484,8 @@ private fun KeyHintStrip(
 @Composable
 private fun RailsView(
     state: ChannelsUiState,
-    railsListState: androidx.tv.foundation.lazy.list.TvLazyListState =
-        androidx.tv.foundation.lazy.list.rememberTvLazyListState(),
+    railsListState: androidx.compose.foundation.lazy.LazyListState =
+        androidx.compose.foundation.lazy.rememberLazyListState(),
     focusController: RailFocusController? = null,
     hoverChannel: Channel? = null,
     searchVisible: Boolean = false,
@@ -564,7 +564,7 @@ private fun RailsView(
                 )
                 val leadingRails = rails.filter { it.title in leadingTitles }
                 val categoryRails = rails.filter { it.title !in leadingTitles }
-                TvLazyColumn(
+                LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = railsListState,
                 contentPadding = PaddingValues(bottom = 48.dp),
@@ -786,7 +786,7 @@ private fun RecentSearchChips(
                 letterSpacing = 1.sp,
             ),
         )
-        TvLazyRow(
+        LazyRow(
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -855,7 +855,7 @@ private fun SearchResultsView(
             .filter { it.second.isNotEmpty() }
     }
 
-    TvLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -957,7 +957,7 @@ private fun ManageFavoritesView(
         Spacer(Modifier.height(16.dp))
 
         Row(modifier = Modifier.fillMaxSize()) {
-            TvLazyColumn(
+            LazyColumn(
                 modifier = Modifier
                     .width(320.dp)
                     .fillMaxHeight()
@@ -1015,8 +1015,8 @@ private fun ManageFavoritesView(
                         )
                     }
                 } else {
-                    val orderListState = androidx.tv.foundation.lazy.list.rememberTvLazyListState()
-                    TvLazyColumn(
+                    val orderListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    LazyColumn(
                         state = orderListState,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1067,7 +1067,7 @@ private fun ManageFavoritesView(
                     )
                 }
             } else {
-                TvLazyColumn(
+                LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 48.dp),
@@ -2049,7 +2049,7 @@ private fun RailRow(
     val railTitle = if (isTopTen) stringResource(R.string.rail_top_ten) else DisplayNames.clean(rail.title)
     val restoreId = focusController?.restoreIdFor(rail.title)
     val rowState = remember(rail.title) {
-        androidx.tv.foundation.lazy.list.TvLazyListState(focusController?.restoreIndexFor(rail.title) ?: 0, 0)
+        androidx.compose.foundation.lazy.LazyListState(focusController?.restoreIndexFor(rail.title) ?: 0, 0)
     }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -2075,7 +2075,7 @@ private fun RailRow(
         }
         if (isTopTen) {
             val topTen = remember(rail.channels) { rail.channels.take(10) }
-            TvLazyRow(
+            LazyRow(
                 state = rowState,
                 // Top-10 cards are noticeably wider because of the left-side numeral, so
                 // a touch more outer padding keeps the first rank from getting clipped.
@@ -2097,7 +2097,7 @@ private fun RailRow(
                 }
             }
         } else {
-            TvLazyRow(
+            LazyRow(
                 state = rowState,
                 contentPadding = PaddingValues(horizontal = 48.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -2642,7 +2642,7 @@ private const val RESTORE_FALLBACK_MS: Long = 800L
 class RailFocusController(
     private val type: ContentType,
     initial: RailFocusMemory?,
-    private val listState: androidx.tv.foundation.lazy.list.TvLazyListState,
+    private val listState: androidx.compose.foundation.lazy.LazyListState,
     private val onRemember: (ContentType, RailFocusMemory?) -> Unit,
 ) {
     private var pending by mutableStateOf(initial)

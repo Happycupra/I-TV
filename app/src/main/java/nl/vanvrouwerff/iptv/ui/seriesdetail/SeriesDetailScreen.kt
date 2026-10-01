@@ -41,9 +41,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -222,7 +222,7 @@ private fun EpisodesBlock(
     }
     val activeSeason: SeriesSeason = season
     val episodeListState = remember(activeSeason.number) {
-        androidx.tv.foundation.lazy.list.TvLazyListState()
+        androidx.compose.foundation.lazy.LazyListState()
     }
     val nextUpIndex = state.nextUp
         ?.takeIf { it.season.number == activeSeason.number }
@@ -233,7 +233,7 @@ private fun EpisodesBlock(
     }
     // Fixed-height inner list: nested inside the page's lazy column, and tall enough to
     // show several episodes at once on a 540dp screen.
-    TvLazyColumn(
+    LazyColumn(
         state = episodeListState,
         modifier = Modifier.fillMaxWidth().height(EPISODE_LIST_HEIGHT),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -259,7 +259,7 @@ private fun SeasonRow(
     onSelect: (Int) -> Unit,
 ) {
     if (seasons.isEmpty()) return
-    TvLazyRow(
+    LazyRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(seasons, key = { it.number }) { season ->

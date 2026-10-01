@@ -2,8 +2,6 @@ package nl.vanvrouwerff.iptv
 
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
-import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -65,31 +63,6 @@ class MainActivity : ComponentActivity() {
                     ReminderHost(onWatch = ::openLiveChannel)
                 }
             }
-        }
-    }
-
-    /**
-     * Workaround for androidx.tv.foundation:1.0.0-alpha10 focus-search crash.
-     *
-     * Clicking an EpisodeRow fires startActivity() for PlayerActivity synchronously on the
-     * main thread. That begins tearing down Compose nodes in the TvLazyColumn while the
-     * D-pad DPAD_CENTER event is still dispatching. The focus traversal code then calls
-     * `focusRect()` on a node whose LayoutCoordinates are already detached, throwing
-     * `IllegalStateException: LayoutCoordinate operations are only valid when isAttached is true`
-     * — which kills the process before the transition completes.
-     *
-     * Swallowing the exception here lets the activity transition finish cleanly; the user
-     * sees PlayerActivity as intended. The proper fix is upgrading `tv-foundation` (the bug
-     * is addressed in later alphas), but that needs a Compose BOM bump and broader testing.
-     */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean = try {
-        super.dispatchKeyEvent(event)
-    } catch (e: IllegalStateException) {
-        if (e.message?.contains("isAttached", ignoreCase = true) == true) {
-            Log.w(TAG, "Suppressed Compose focus-search crash during key dispatch", e)
-            true
-        } else {
-            throw e
         }
     }
 
@@ -169,9 +142,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val TAG = "MainActivity"
-    }
 }
 
 private sealed interface Route {

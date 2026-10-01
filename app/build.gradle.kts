@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
 }
 
@@ -18,7 +19,7 @@ val tmdbBearerToken: String = localProps.getProperty("TMDB_BEARER_TOKEN", "")
 
 android {
     namespace = "nl.vanvrouwerff.iptv"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "nl.vanvrouwerff.iptv"
@@ -67,22 +68,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            "-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api",
-            "-opt-in=androidx.tv.foundation.ExperimentalTvFoundationApi",
-        )
-    }
 
     buildFeatures {
         compose = true
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
-    }
 
     packaging {
         resources {
@@ -140,4 +131,13 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+}
+
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.add("-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api")
+        freeCompilerArgs.add("-opt-in=androidx.tv.foundation.ExperimentalTvFoundationApi")
+    }
 }
