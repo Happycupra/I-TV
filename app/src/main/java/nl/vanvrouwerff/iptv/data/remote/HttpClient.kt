@@ -75,6 +75,12 @@ object HttpClient {
             .build()
     }
 
+    /** Clears cached API metadata. Video segments are never stored in this cache. */
+    fun clearCache() {
+        runCatching { _okHttp?.cache?.evictAll() }
+            .onFailure { Log.w("HttpClient", "Failed to clear HTTP cache", it) }
+    }
+
     fun retrofitFor(baseUrl: String): Retrofit {
         val normalised = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         return Retrofit.Builder()

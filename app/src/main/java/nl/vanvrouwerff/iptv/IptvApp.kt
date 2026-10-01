@@ -1,6 +1,7 @@
 package nl.vanvrouwerff.iptv
 
 import android.app.Application
+import coil.Coil
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -123,6 +124,19 @@ class IptvApp : Application(), ImageLoaderFactory {
         .crossfade(true)
         .respectCacheHeaders(false)
         .build()
+
+    /**
+     * Clears disposable network/image caches without touching the playlist database,
+     * favourites, profiles, watch progress, PIN or source credentials.
+     */
+    fun clearTransientCaches() {
+        HttpClient.clearCache()
+        runCatching {
+            val loader = Coil.imageLoader(this)
+            loader.memoryCache?.clear()
+            loader.diskCache?.clear()
+        }
+    }
 
     companion object {
         private lateinit var instance: IptvApp

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_refresh_countdown">Nächste Aktualisierung in %1$s</string>
+    <string name="settings_maintenance_body">Bei Störungen kannst du temporäre Netzwerk-/Bilddaten leeren oder I-TV mit einer erzwungenen Playlist-Neuladung sanft zurücksetzen. Favoriten, Profile, Verlauf und Zugangsdaten bleiben erhalten.</string>
+    <string name="settings_clear_cache">Cache leeren</string>
+    <string name="settings_cache_cleared">Cache wurde geleert.</string>
+    <string name="settings_soft_reset">Soft Reset</string>
+    <string name="settings_soft_reset_done">Soft Reset abgeschlossen. Die Playlist wurde neu geladen.</string>
+    <string name="settings_maintenance_failed">Aktion fehlgeschlagen. Bitte Netzwerk/Quelle prüfen und erneut versuchen.</string>
+</resources>
