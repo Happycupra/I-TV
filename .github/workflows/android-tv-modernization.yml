@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
+      - feature/xtream-url-autofill-top-reset
   workflow_dispatch:
 
 permissions:
@@ -30,6 +31,9 @@ jobs:
 
       - name: Apply Android TV modernization
         run: python3 scripts/modernize_android_tv.py
+
+      - name: Apply Xtream quick import patch
+        run: python3 scripts/apply_xtream_quick_import.py
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
@@ -61,5 +65,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app build.gradle.kts gradle scripts release-apk
-          git commit -m "Modernize Android TV stack and refresh release APK"
+          git commit -m "Apply Xtream quick import and refresh release APK"
           git push origin HEAD:${GITHUB_REF_NAME}
