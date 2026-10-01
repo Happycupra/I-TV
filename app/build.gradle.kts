@@ -23,7 +23,9 @@ android {
 
     defaultConfig {
         applicationId = "nl.vanvrouwerff.iptv"
-        minSdk = 29
+        // Keep compatibility with older Android TV boxes and vendor firmware that may
+        // report an older API level than the Android version shown in Settings.
+        minSdk = 28
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
@@ -32,6 +34,14 @@ android {
     }
 
     signingConfigs {
+        // Some older/modified Android TV package installers still expect the classic
+        // JAR/V1 signature. Keep V1 alongside V2/V3 for maximum sideload compatibility.
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+
         // Release keystore from local.properties; without it release builds fall back to the
         // debug key (fine for sideloading, not for distribution).
         val storeFilePath = localProps.getProperty("RELEASE_STORE_FILE")
@@ -41,6 +51,9 @@ android {
                 storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
                 keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
                 keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
