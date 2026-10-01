@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
-      - fix/android11-tv-install
   workflow_dispatch:
 
 permissions:
@@ -22,9 +21,6 @@ jobs:
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
