@@ -4,9 +4,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Keep TV support, but do not block installation/launch on Android-based TV boxes
+         whose firmware does not advertise the Leanback feature correctly. -->
     <uses-feature
         android:name="android.software.leanback"
-        android:required="true" />
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
@@ -27,9 +29,18 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="landscape">
+
+            <!-- Native Android TV / Google TV launcher entry. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+
+            <!-- Compatibility launcher entry for generic Android TV boxes, sideload
+                 installers and third-party launchers that use getLaunchIntentForPackage(). -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
