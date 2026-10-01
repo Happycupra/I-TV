@@ -280,6 +280,25 @@ private fun SourceSection(
     onSaved: () -> Unit,
     onBack: () -> Unit,
 ) {
+    OutlinedTextField(
+        value = state.quickSetupUrl,
+        onValueChange = vm::setQuickSetupUrl,
+        label = { androidx.compose.material3.Text(stringResource(R.string.settings_quick_url_title)) },
+        supportingText = {
+            androidx.compose.material3.Text(stringResource(R.string.settings_quick_url_hint))
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+        modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
+    )
+    if (state.xtreamUrlDetected) {
+        Text(
+            text = stringResource(R.string.settings_xtream_detected),
+            style = MaterialTheme.typography.bodyMedium,
+            color = IptvPalette.AccentSoft,
+        )
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SegmentPill(
             label = stringResource(R.string.settings_source_m3u),

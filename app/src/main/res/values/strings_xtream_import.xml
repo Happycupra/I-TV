@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_quick_url_title">Playlist-/Xtream-Link einfügen</string>
+    <string name="settings_quick_url_hint">Langen get.php-Link einfügen. I-TV erkennt Xtream automatisch und füllt Server, Benutzername und Passwort aus.</string>
+    <string name="settings_xtream_detected">Xtream-Zugang erkannt. Bitte kurz prüfen und anschließend speichern.</string>
+</resources>
