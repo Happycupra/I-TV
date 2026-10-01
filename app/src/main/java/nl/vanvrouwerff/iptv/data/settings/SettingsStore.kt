@@ -107,6 +107,44 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { prefs -> prefs[LAST_REFRESH_AT] = nowMs }
     }
 
+    val lastLiveRefreshAt: Flow<Long> = context.dataStore.data.map { it[LAST_LIVE_REFRESH_AT] ?: 0L }
+    val lastMoviesRefreshAt: Flow<Long> = context.dataStore.data.map { it[LAST_MOVIES_REFRESH_AT] ?: 0L }
+    val lastSeriesRefreshAt: Flow<Long> = context.dataStore.data.map { it[LAST_SERIES_REFRESH_AT] ?: 0L }
+    val lastLiveCount: Flow<Int> = context.dataStore.data.map { it[LAST_LIVE_COUNT] ?: 0 }
+    val lastMoviesCount: Flow<Int> = context.dataStore.data.map { it[LAST_MOVIES_COUNT] ?: 0 }
+    val lastSeriesCount: Flow<Int> = context.dataStore.data.map { it[LAST_SERIES_COUNT] ?: 0 }
+    val providerFailureStreak: Flow<Int> = context.dataStore.data.map { it[PROVIDER_FAILURE_STREAK] ?: 0 }
+    val lastProviderError: Flow<String> = context.dataStore.data.map { it[LAST_PROVIDER_ERROR].orEmpty() }
+    val catalogueSourceKey: Flow<String> = context.dataStore.data.map { it[CATALOGUE_SOURCE_KEY].orEmpty() }
+
+    suspend fun markSectionSuccess(type: String, count: Int, nowMs: Long = System.currentTimeMillis()) {
+        context.dataStore.edit { prefs ->
+            when (type) {
+                "TV" -> { prefs[LAST_LIVE_REFRESH_AT] = nowMs; prefs[LAST_LIVE_COUNT] = count }
+                "MOVIE" -> { prefs[LAST_MOVIES_REFRESH_AT] = nowMs; prefs[LAST_MOVIES_COUNT] = count }
+                "SERIES" -> { prefs[LAST_SERIES_REFRESH_AT] = nowMs; prefs[LAST_SERIES_COUNT] = count }
+            }
+        }
+    }
+
+    suspend fun markProviderFailure(error: String) {
+        context.dataStore.edit { prefs ->
+            prefs[PROVIDER_FAILURE_STREAK] = ((prefs[PROVIDER_FAILURE_STREAK] ?: 0) + 1).coerceAtMost(999)
+            prefs[LAST_PROVIDER_ERROR] = error.take(300)
+        }
+    }
+
+    suspend fun markProviderRecovered() {
+        context.dataStore.edit { prefs ->
+            prefs[PROVIDER_FAILURE_STREAK] = 0
+            prefs.remove(LAST_PROVIDER_ERROR)
+        }
+    }
+
+    suspend fun setCatalogueSourceKey(value: String) {
+        context.dataStore.edit { prefs -> prefs[CATALOGUE_SOURCE_KEY] = value }
+    }
+
     val lastEpgRefreshAt: Flow<Long> = context.dataStore.data.map { it[LAST_EPG_REFRESH_AT] ?: 0L }
 
     suspend fun markEpgRefresh(nowMs: Long = System.currentTimeMillis()) {
@@ -252,6 +290,15 @@ class SettingsStore(private val context: Context) {
         val PLAYLIST_ETAG = stringPreferencesKey("playlist_etag")
         val PLAYLIST_LAST_MODIFIED = stringPreferencesKey("playlist_last_modified")
         val LAST_REFRESH_AT = longPreferencesKey("last_refresh_at")
+        val LAST_LIVE_REFRESH_AT = longPreferencesKey("last_live_refresh_at")
+        val LAST_MOVIES_REFRESH_AT = longPreferencesKey("last_movies_refresh_at")
+        val LAST_SERIES_REFRESH_AT = longPreferencesKey("last_series_refresh_at")
+        val LAST_LIVE_COUNT = intPreferencesKey("last_live_count")
+        val LAST_MOVIES_COUNT = intPreferencesKey("last_movies_count")
+        val LAST_SERIES_COUNT = intPreferencesKey("last_series_count")
+        val PROVIDER_FAILURE_STREAK = intPreferencesKey("provider_failure_streak")
+        val LAST_PROVIDER_ERROR = stringPreferencesKey("last_provider_error")
+        val CATALOGUE_SOURCE_KEY = stringPreferencesKey("catalogue_source_key")
         val LAST_EPG_REFRESH_AT = longPreferencesKey("last_epg_refresh_at")
         val CATALOGUE_VERSION = androidx.datastore.preferences.core.intPreferencesKey("catalogue_version")
         val LAST_PROFILE_SESSION_AT = longPreferencesKey("last_profile_session_at")

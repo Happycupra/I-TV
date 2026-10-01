@@ -479,7 +479,8 @@ class PlayerActivity : ComponentActivity() {
                     Log.i(TAG, "transient IO error (${error.errorCodeName}); auto-retry $autoRetryCount")
                     autoRetryJob?.cancel()
                     autoRetryJob = lifecycleScope.launch {
-                        delay(AUTO_RETRY_DELAY_MS)
+                        val retryDelayMs = AUTO_RETRY_DELAYS_MS.getOrElse(autoRetryCount - 1) { AUTO_RETRY_DELAYS_MS.last() }
+                        delay(retryDelayMs)
                         // Channel might have changed during the wait (user hit CH+/-): skip
                         // the retry in that case, the new channel's own prepare() is running.
                         if (channels.getOrNull(currentIndex)?.id == channel?.id) retryCurrent()
@@ -1434,8 +1435,8 @@ class PlayerActivity : ComponentActivity() {
         private const val NUMERIC_COMMIT_MS = 1_500L
         private const val MAX_SUBTITLE_DELAY_MS = 10_000L
         /** Silent-retry budget for transient IO errors before showing the overlay. */
-        private const val MAX_AUTO_RETRY = 1
-        private const val AUTO_RETRY_DELAY_MS = 1_500L
+        private const val MAX_AUTO_RETRY = 3
+        private val AUTO_RETRY_DELAYS_MS = longArrayOf(1_500L, 4_000L, 9_000L)
         /** Remaining-playback threshold that triggers the "Volgende aflevering"-overlay. */
         const val NEXT_EPISODE_WINDOW_MS: Long = 15_000L
         private const val TAG = "PlayerActivity"
