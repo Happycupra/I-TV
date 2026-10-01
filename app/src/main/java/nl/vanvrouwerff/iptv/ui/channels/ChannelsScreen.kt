@@ -102,6 +102,7 @@ import nl.vanvrouwerff.iptv.data.tmdb.TmdbClient
 import nl.vanvrouwerff.iptv.ui.theme.FocusStyle
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
 import nl.vanvrouwerff.iptv.ui.theme.tvFocus
+import nl.vanvrouwerff.iptv.ui.common.tvKeyboardOnOk
 
 /**
  * Rough threshold that distinguishes "bulk insert in progress" from "user genuinely has
@@ -694,6 +695,7 @@ private fun SearchBar(
             value = query,
             onValueChange = onQueryChange,
             singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(showKeyboardOnFocus = false),
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Filled.Search,
@@ -706,7 +708,8 @@ private fun SearchBar(
             },
             modifier = Modifier
                 .weight(1f)
-                .focusRequester(focusRequester),
+                .focusRequester(focusRequester)
+                .tvKeyboardOnOk(),
         )
         VoiceSearchButton(
             onClick = {

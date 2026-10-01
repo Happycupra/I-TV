@@ -51,6 +51,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
+import nl.vanvrouwerff.iptv.ui.common.tvKeyboardOnOk
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -333,9 +334,9 @@ private fun EditingPanel(
             // Done on the on-screen keyboard commits the rename directly. Without this
             // the user has to dismiss the IME (which hides Save), navigate D-pad to the
             // Save button, and click it — an easy flow to lose your edit in.
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, showKeyboardOnFocus = false),
             keyboardActions = KeyboardActions(onDone = { onSave() }),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().tvKeyboardOnOk(),
         )
         Text(
             text = stringResource(R.string.profiles_color_label),
