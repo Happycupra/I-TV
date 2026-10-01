@@ -17,6 +17,7 @@ import nl.vanvrouwerff.iptv.data.settings.PhoneSetupServer
 import nl.vanvrouwerff.iptv.IptvApp
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
+import nl.vanvrouwerff.iptv.data.settings.XtreamUrlParser
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 enum class SourceType { M3u, Xtream }
@@ -24,6 +25,8 @@ enum class SourceType { M3u, Xtream }
 data class SettingsUiState(
     val type: SourceType = SourceType.M3u,
     val m3uUrl: String = "",
+    val quickSetupUrl: String = "",
+    val xtreamUrlDetected: Boolean = false,
     val host: String = "",
     val username: String = "",
     val password: String = "",
@@ -124,6 +127,37 @@ class SettingsViewModel : ViewModel() {
                     testResult = null,
                     validationError = null,
                     filledFromPhone = true,
+                )
+            }
+        }
+    }
+
+    /**
+     * Paste-friendly setup: a standard Xtream get.php M3U URL is recognised locally,
+     * split into host/user/password, then discarded from the visible quick-entry field.
+     * Nothing is saved until the user presses Save.
+     */
+    fun setQuickSetupUrl(v: String) {
+        val parsed = XtreamUrlParser.parse(v)
+        _state.update { current ->
+            if (parsed == null) {
+                current.copy(
+                    quickSetupUrl = v,
+                    xtreamUrlDetected = false,
+                    validationError = null,
+                    testResult = null,
+                )
+            } else {
+                current.copy(
+                    quickSetupUrl = "",
+                    xtreamUrlDetected = true,
+                    type = SourceType.Xtream,
+                    host = parsed.host,
+                    username = parsed.username,
+                    password = parsed.password,
+                    validationError = null,
+                    testResult = null,
+                    filledFromPhone = false,
                 )
             }
         }

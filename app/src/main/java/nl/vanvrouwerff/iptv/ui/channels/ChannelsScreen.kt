@@ -1230,6 +1230,8 @@ private fun TopBar(
                 letterSpacing = 2.sp,
             ),
         )
+        Spacer(Modifier.width(12.dp))
+        HomeSoftResetButton()
         Spacer(Modifier.width(24.dp))
         Tabs.forEach { tab ->
             val isSelected = tab.type == selected

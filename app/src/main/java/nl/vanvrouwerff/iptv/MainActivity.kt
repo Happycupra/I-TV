@@ -35,7 +35,6 @@ import nl.vanvrouwerff.iptv.player.PlayerActivity
 import nl.vanvrouwerff.iptv.ui.categories.CategoriesScreen
 import nl.vanvrouwerff.iptv.ui.guide.GuideScreen
 import nl.vanvrouwerff.iptv.ui.channels.ChannelsScreen
-import nl.vanvrouwerff.iptv.ui.channels.HomeSoftResetButton
 import nl.vanvrouwerff.iptv.ui.detail.MovieDetailScreen
 import nl.vanvrouwerff.iptv.ui.seriesdetail.Episode
 import nl.vanvrouwerff.iptv.ui.seriesdetail.SeriesDetailScreen
@@ -294,36 +293,33 @@ private fun AppRouteHost(
                 onPicked = { onNavigate(Route.Channels) },
                 onManageProfiles = { onNavigate(Route.Profiles) },
             )
-            Route.Channels -> Box(modifier = Modifier.fillMaxSize()) {
-                ChannelsScreen(
-                                onOpenSettings = { onNavigate(Route.Settings) },
-                                onOpenCategories = { type, category -> onNavigate(Route.Categories(type, category)) },
-                                onOpenGuide = { onNavigate(Route.Guide) },
-                                onOpenProfiles = { onNavigate(Route.Profiles) },
-                                onPlay = { channel, list ->
-                                    when (channel.type) {
-                                        ContentType.MOVIE -> onNavigate(Route.MovieDetail(channel.id, channel))
-                                        ContentType.SERIES -> {
-                                            val raw = channel.id.removePrefix("xt-series:")
-                                            onNavigate(Route.SeriesDetail(raw, channel))
-                                        }
-                                        ContentType.TV -> onPlay(channel, list, 0L)
-                                    }
-                                },
-                                onPlayDirect = onPlayDirect,
-                                onOpenDetail = { channel ->
-                                    when (channel.type) {
-                                        ContentType.MOVIE -> onNavigate(Route.MovieDetail(channel.id, channel))
-                                        ContentType.SERIES -> {
-                                            val raw = channel.id.removePrefix("xt-series:")
-                                            onNavigate(Route.SeriesDetail(raw, channel))
-                                        }
-                                        ContentType.TV -> Unit
-                                    }
-                                },
-                            )
-                HomeSoftResetButton()
-            }
+            Route.Channels -> ChannelsScreen(
+                                            onOpenSettings = { onNavigate(Route.Settings) },
+                                            onOpenCategories = { type, category -> onNavigate(Route.Categories(type, category)) },
+                                            onOpenGuide = { onNavigate(Route.Guide) },
+                                            onOpenProfiles = { onNavigate(Route.Profiles) },
+                                            onPlay = { channel, list ->
+                                                when (channel.type) {
+                                                    ContentType.MOVIE -> onNavigate(Route.MovieDetail(channel.id, channel))
+                                                    ContentType.SERIES -> {
+                                                        val raw = channel.id.removePrefix("xt-series:")
+                                                        onNavigate(Route.SeriesDetail(raw, channel))
+                                                    }
+                                                    ContentType.TV -> onPlay(channel, list, 0L)
+                                                }
+                                            },
+                                            onPlayDirect = onPlayDirect,
+                                            onOpenDetail = { channel ->
+                                                when (channel.type) {
+                                                    ContentType.MOVIE -> onNavigate(Route.MovieDetail(channel.id, channel))
+                                                    ContentType.SERIES -> {
+                                                        val raw = channel.id.removePrefix("xt-series:")
+                                                        onNavigate(Route.SeriesDetail(raw, channel))
+                                                    }
+                                                    ContentType.TV -> Unit
+                                                }
+                                            },
+                                        )
             is Route.MovieDetail -> MovieDetailScreen(
                 channelId = route.channelId,
                 preview = route.preview,
