@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
+      - feature/android-phone-support
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,9 @@ jobs:
       - name: Apply Android TV modernization
         run: python3 scripts/modernize_android_tv.py
 
+      - name: Apply Android phone support
+        run: python3 scripts/apply_phone_support.py
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
@@ -52,7 +56,7 @@ jobs:
             release-apk/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Commit modernization and APK back to branch
+      - name: Commit phone support and APK back to branch
         run: |
           if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
             echo "No changes to commit"
@@ -61,5 +65,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app build.gradle.kts gradle scripts release-apk
-          git commit -m "Modernize Android TV stack and refresh release APK"
+          git commit -m "Add Android phone support and refresh release APK"
           git push origin HEAD:${GITHUB_REF_NAME}
