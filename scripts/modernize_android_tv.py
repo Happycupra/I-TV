@@ -80,6 +80,7 @@ text = re.sub(r'^lifecycle = ".*"$', 'lifecycle = "2.10.0"', text, flags=re.MULT
 text = re.sub(r'^tv-foundation = ".*"$', 'tv-foundation = "1.0.0"', text, flags=re.MULTILINE)
 text = re.sub(r'^tv-material = ".*"$', 'tv-material = "1.1.0"', text, flags=re.MULTILINE)
 text = re.sub(r'^media3 = ".*"$', 'media3 = "1.11.1"', text, flags=re.MULTILINE)
+text = re.sub(r'^room = ".*"$', 'room = "2.8.5"', text, flags=re.MULTILINE)
 if 'compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose"' not in text:
     text = text.replace(
         'kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }\n',
