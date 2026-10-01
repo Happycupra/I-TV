@@ -66,14 +66,14 @@ def migrate_kotlin_file(path: Path) -> None:
         print(f"migrated {path.relative_to(ROOT)}")
 
 
-# Modern toolchain: AGP 8.13.2 + Kotlin 2.3.21/KSP2, current Compose BOM,
-# stable Compose for TV, and Media3 1.11.1.
+# Modern toolchain. Compose is deliberately pinned to the final 1.11.x line because
+# Compose 1.12+ requires compileSdk 37 and AGP 9.1, while AGP 8.13.2 supports compileSdk 36.
 versions = ROOT / "gradle/libs.versions.toml"
 text = versions.read_text(encoding="utf-8")
 text = re.sub(r'^agp = ".*"$', 'agp = "8.13.2"', text, flags=re.MULTILINE)
 text = re.sub(r'^kotlin = ".*"$', 'kotlin = "2.3.21"', text, flags=re.MULTILINE)
 text = re.sub(r'^ksp = ".*"$', 'ksp = "2.3.12"', text, flags=re.MULTILINE)
-text = re.sub(r'^compose-bom = ".*"$', 'compose-bom = "2026.09.00"', text, flags=re.MULTILINE)
+text = re.sub(r'^compose-bom = ".*"$', 'compose-bom = "2026.06.01"', text, flags=re.MULTILINE)
 text = re.sub(r'^compose-compiler = ".*"\n', '', text, flags=re.MULTILINE)
 text = re.sub(r'^activity-compose = ".*"$', 'activity-compose = "1.13.0"', text, flags=re.MULTILINE)
 text = re.sub(r'^lifecycle = ".*"$', 'lifecycle = "2.10.0"', text, flags=re.MULTILINE)
@@ -101,9 +101,8 @@ if "alias(libs.plugins.compose.compiler) apply false" not in text:
 root_build.write_text(text, encoding="utf-8")
 print("updated build.gradle.kts")
 
-# App module: compile against Android 16 while intentionally keeping targetSdk 34,
-# which remains the Android TV submission floor. Kotlin 2.x uses the Compose plugin,
-# so the legacy composeOptions/compiler-extension block and kotlinOptions DSL must go.
+# App module: compile against Android 16 while intentionally keeping targetSdk 34.
+# Kotlin 2.x uses the Compose plugin, so legacy composeOptions/kotlinOptions must go.
 app_build = ROOT / "app/build.gradle.kts"
 text = app_build.read_text(encoding="utf-8")
 if "alias(libs.plugins.compose.compiler)" not in text:
