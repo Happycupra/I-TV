@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
-      - feature/local-direct-phone-setup
   workflow_dispatch:
 
 permissions:
