@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d12">
+  <title>I-TV verbinden</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a0f;
+      --panel: rgba(20, 23, 31, .88);
+      --panel-strong: #151923;
+      --line: rgba(255,255,255,.10);
+      --line-focus: rgba(255,255,255,.28);
+      --text: #f7f8fb;
+      --muted: #9ca3b4;
+      --accent: #ff3b5c;
+      --accent-hover: #ff5672;
+      --ok: #48d597;
+      --warn: #ffc857;
+      --danger: #ff6b78;
+      --shadow: 0 28px 80px rgba(0,0,0,.42);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 10%, rgba(255,59,92,.16), transparent 34rem),
+        radial-gradient(circle at 90% 5%, rgba(79,102,255,.12), transparent 30rem),
+        var(--bg);
+      padding: 24px;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .shell {
+      width: min(100%, 560px);
+      margin: 0 auto;
+      min-height: calc(100vh - 48px);
+      display: grid;
+      align-content: center;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: -.03em;
+      font-size: 20px;
+    }
+
+    .logo-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #ff5270, #d91d43);
+      box-shadow: 0 10px 24px rgba(255,59,92,.28);
+      font-size: 17px;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 12px;
+      background: rgba(255,255,255,.035);
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(24px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .card-body { padding: 30px; }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(28px, 7vw, 42px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+    }
+
+    .lead {
+      margin: 0 0 26px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .step-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .step-dot {
+      height: 6px;
+      flex: 1;
+      border-radius: 99px;
+      background: rgba(255,255,255,.08);
+      transition: background .2s ease;
+    }
+
+    .step-dot.active { background: var(--accent); }
+    .step-dot.done { background: rgba(72,213,151,.78); }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: #cbd0dc;
+      margin: 0 0 8px;
+      font-weight: 650;
+    }
+
+    .field { margin-bottom: 16px; }
+
+    input[type="text"], input[type="password"], input[type="url"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      outline: 0;
+      color: var(--text);
+      background: #0f1219;
+      border-radius: 14px;
+      padding: 14px 15px;
+      min-height: 50px;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+
+    input:focus {
+      border-color: var(--line-focus);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.055);
+      background: #121620;
+    }
+
+    .code-input {
+      font-size: 30px !important;
+      font-weight: 800;
+      letter-spacing: .34em;
+      text-align: center;
+      padding-left: calc(15px + .34em) !important;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: #0d1017;
+      margin-bottom: 20px;
+    }
+
+    .segment {
+      border: 0;
+      border-radius: 11px;
+      background: transparent;
+      color: var(--muted);
+      padding: 11px 12px;
+      font-weight: 700;
+    }
+
+    .segment.active {
+      background: #202530;
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 14px;
+      min-height: 50px;
+      padding: 0 18px;
+      font-weight: 800;
+      transition: transform .12s, background .15s, opacity .15s;
+    }
+
+    .btn:active { transform: scale(.985); }
+    .btn:disabled { cursor: default; opacity: .5; }
+
+    .btn-primary {
+      flex: 1;
+      color: white;
+      background: var(--accent);
+      box-shadow: 0 14px 30px rgba(255,59,92,.22);
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-secondary {
+      color: var(--text);
+      background: #202530;
+    }
+
+    .status {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.035);
+      border-radius: 14px;
+      padding: 13px 14px;
+      margin-top: 16px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--muted);
+      display: none;
+    }
+    .status.show { display: block; }
+    .status.ok { border-color: rgba(72,213,151,.24); color: #a7edcd; background: rgba(72,213,151,.065); }
+    .status.error { border-color: rgba(255,107,120,.24); color: #ffb0b8; background: rgba(255,107,120,.065); }
+    .status.warn { border-color: rgba(255,200,87,.24); color: #ffe2a1; background: rgba(255,200,87,.055); }
+
+    .device {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 13px 14px;
+      margin-bottom: 18px;
+      background: rgba(255,255,255,.025);
+    }
+
+    .device-name { font-weight: 750; font-size: 14px; }
+    .device-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .device-check { color: var(--ok); font-size: 20px; }
+
+    .counts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .count {
+      border-radius: 12px;
+      padding: 12px 10px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.06);
+      text-align: center;
+    }
+
+    .count strong { display: block; font-size: 17px; }
+    .count span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+
+    .footer-note {
+      text-align: center;
+      color: #747b8d;
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 0 18px;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 560px) {
+      body { padding: 14px; }
+      .shell { min-height: calc(100vh - 28px); }
+      .card-body { padding: 22px; }
+      .row { grid-template-columns: 1fr; gap: 0; }
+      .actions { flex-direction: column-reverse; }
+      .btn-secondary { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brand">
+      <div class="logo"><span class="logo-mark">▶</span><span>I-TV</span></div>
+      <span class="badge" id="modeBadge">Lokaler Demo-Modus</span>
+    </header>
+
+    <section class="card">
+      <div class="card-body">
+        <div class="step-row" aria-hidden="true">
+          <span class="step-dot active" data-step-dot="1"></span>
+          <span class="step-dot" data-step-dot="2"></span>
+          <span class="step-dot" data-step-dot="3"></span>
+        </div>
+
+        <section id="step1">
+          <h1>Fernseher verbinden</h1>
+          <p class="lead">Gib den 6-stelligen Code ein, der auf deinem Fernseher angezeigt wird.</p>
+
+          <div class="field">
+            <label for="deviceCode">Gerätecode</label>
+            <input id="deviceCode" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-describedby="codeHelp">
+          </div>
+
+          <div id="codeStatus" class="status"></div>
+
+          <div class="actions">
+            <button id="connectButton" class="btn btn-primary" type="button">Verbinden</button>
+          </div>
+        </section>
+
+        <section id="step2" class="hidden">
+          <h1>Quelle hinzufügen</h1>
+          <p class="lead">Die Zugangsdaten werden erst nach erfolgreicher Prüfung an den Fernseher übertragen.</p>
+
+          <div class="device">
+            <div>
+              <div class="device-name" id="deviceName">I-TV Android TV</div>
+              <div class="device-meta" id="deviceMeta">Code 000000 · verbunden</div>
+            </div>
+            <div class="device-check">✓</div>
+          </div>
+
+          <div class="segmented" role="tablist" aria-label="Quellentyp">
+            <button type="button" class="segment active" data-source="xtream" role="tab" aria-selected="true">Xtream Codes</button>
+            <button type="button" class="segment" data-source="m3u" role="tab" aria-selected="false">M3U</button>
+          </div>
+
+          <form id="sourceForm" novalidate>
+            <div id="xtreamFields">
+              <div class="field">
+                <label for="host">Server / Host</label>
+                <input id="host" type="url" placeholder="http://provider.example:8080" autocapitalize="off" spellcheck="false">
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label for="username">Benutzername</label>
+                  <input id="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false">
+                </div>
+                <div class="field">
+                  <label for="password">Passwort</label>
+                  <input id="password" type="password" autocomplete="current-password">
+                </div>
+              </div>
+            </div>
+
+            <div id="m3uFields" class="hidden">
+              <div class="field">
+                <label for="m3uUrl">M3U-Playlist-URL</label>
+                <input id="m3uUrl" type="url" placeholder="https://provider.example/playlist.m3u" autocapitalize="off" spellcheck="false">
+              </div>
+            </div>
+
+            <div id="sourceStatus" class="status"></div>
+
+            <div class="actions">
+              <button id="backButton" class="btn btn-secondary" type="button">Zurück</button>
+              <button id="testButton" class="btn btn-primary" type="submit">Verbindung prüfen</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="step3" class="hidden">
+          <h1>Bereit zum Senden</h1>
+          <p class="lead">Die Quelle wurde geprüft. Du kannst sie jetzt mit dem verbundenen Fernseher verknüpfen.</p>
+
+          <div class="device">
+            <div>
+              <div class="device-name">Verbindung erfolgreich</div>
+              <div class="device-meta" id="sourceSummary">Xtream Codes</div>
+            </div>
+            <div class="device-check">✓</div>
+          </div>
+
+          <div class="counts" id="counts">
+            <div class="count"><strong id="countTv">1'284</strong><span>Sender</span></div>
+            <div class="count"><strong id="countMovies">18'420</strong><span>Filme</span></div>
+            <div class="count"><strong id="countSeries">4'821</strong><span>Serien</span></div>
+          </div>
+
+          <div id="sendStatus" class="status warn show">Demo-Modus: Die Seite ist noch nicht mit einem I-TV-Backend verbunden. Es werden keine Zugangsdaten übertragen.</div>
+
+          <div class="actions">
+            <button id="editButton" class="btn btn-secondary" type="button">Bearbeiten</button>
+            <button id="sendButton" class="btn btn-primary" type="button">An TV senden</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <p class="footer-note">Zugangsdaten werden in dieser lokalen Demo nicht gespeichert. Für die spätere Online-Version sollte die Übertragung ausschließlich verschlüsselt über HTTPS und kurzlebige Gerätecodes erfolgen.</p>
+  </main>
+
+  <script>
+    const CONFIG = {
+      apiBase: "", // z. B. https://api.itv.app; leer = lokaler Demo-Modus
+      demoDeviceCode: "482731",
+      demoDeviceName: "Wohnzimmer TV",
+    };
+
+    const state = {
+      step: 1,
+      sourceType: "xtream",
+      deviceCode: "",
+      deviceToken: null,
+      testedPayload: null,
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const sections = [$("step1"), $("step2"), $("step3")];
+
+    function setStep(step) {
+      state.step = step;
+      sections.forEach((section, i) => section.classList.toggle("hidden", i !== step - 1));
+      document.querySelectorAll("[data-step-dot]").forEach((dot) => {
+        const n = Number(dot.dataset.stepDot);
+        dot.classList.toggle("active", n === step);
+        dot.classList.toggle("done", n < step);
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showStatus(element, message, kind = "") {
+      element.textContent = message;
+      element.className = `status show ${kind}`.trim();
+    }
+
+    function clearStatus(element) {
+      element.textContent = "";
+      element.className = "status";
+    }
+
+    function normalizeCode(value) {
+      return value.replace(/\D/g, "").slice(0, 6);
+    }
+
+    function isHttpUrl(value) {
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function sourcePayload() {
+      if (state.sourceType === "m3u") {
+        return { type: "m3u", url: $("m3uUrl").value.trim() };
+      }
+      return {
+        type: "xtream",
+        host: $("host").value.trim().replace(/\/$/, ""),
+        username: $("username").value.trim(),
+        password: $("password").value,
+      };
+    }
+
+    function validateSource(payload) {
+      if (payload.type === "m3u") {
+        return isHttpUrl(payload.url) ? null : "Bitte gib eine gültige M3U-URL mit http:// oder https:// ein.";
+      }
+      if (!isHttpUrl(payload.host)) return "Bitte gib einen gültigen Server mit http:// oder https:// ein.";
+      if (!payload.username) return "Bitte gib den Benutzernamen ein.";
+      if (!payload.password) return "Bitte gib das Passwort ein.";
+      return null;
+    }
+
+    async function api(path, options = {}) {
+      if (!CONFIG.apiBase) throw new Error("DEMO_MODE");
+      const response = await fetch(`${CONFIG.apiBase}${path}`, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
+      return body;
+    }
+
+    $("deviceCode").addEventListener("input", (event) => {
+      const normalized = normalizeCode(event.target.value);
+      event.target.value = normalized;
+      clearStatus($("codeStatus"));
+    });
+
+    $("deviceCode").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") $("connectButton").click();
+    });
+
+    $("connectButton").addEventListener("click", async () => {
+      const code = normalizeCode($("deviceCode").value);
+      if (code.length !== 6) {
+        showStatus($("codeStatus"), "Bitte gib den vollständigen 6-stelligen Code ein.", "error");
+        return;
+      }
+
+      const button = $("connectButton");
+      button.disabled = true;
+      button.textContent = "Wird verbunden …";
+      clearStatus($("codeStatus"));
+
+      try {
+        let device;
+        if (!CONFIG.apiBase) {
+          await new Promise((resolve) => setTimeout(resolve, 450));
+          if (code !== CONFIG.demoDeviceCode) {
+            throw new Error(`Demo-Code: ${CONFIG.demoDeviceCode}`);
+          }
+          device = { name: CONFIG.demoDeviceName, token: "demo-device-token" };
+        } else {
+          device = await api("/v1/pairing/claim", {
+            method: "POST",
+            body: JSON.stringify({ code }),
+          });
+        }
+
+        state.deviceCode = code;
+        state.deviceToken = device.token;
+        $("deviceName").textContent = device.name || "I-TV Android TV";
+        $("deviceMeta").textContent = `Code ${code} · verbunden`;
+        setStep(2);
+      } catch (error) {
+        showStatus($("codeStatus"), error.message === "DEMO_MODE" ? "Backend nicht konfiguriert." : (error.message || "Gerätecode nicht gefunden."), "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = "Verbinden";
+      }
+    });
+
+    document.querySelectorAll("[data-source]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.sourceType = button.dataset.source;
+        document.querySelectorAll("[data-source]").forEach((item) => {
+          const active = item === button;
+          item.classList.toggle("active", active);
+          item.setAttribute("aria-selected", String(active));
+        });
+        $("xtreamFields").classList.toggle("hidden", state.sourceType !== "xtream");
+        $("m3uFields").classList.toggle("hidden", state.sourceType !== "m3u");
+        clearStatus($("sourceStatus"));
+      });
+    });
+
+    $("backButton").addEventListener("click", () => setStep(1));
+    $("editButton").addEventListener("click", () => setStep(2));
+
+    $("sourceForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const payload = sourcePayload();
+      const validationError = validateSource(payload);
+      if (validationError) {
+        showStatus($("sourceStatus"), validationError, "error");
+        return;
+      }
+
+      const button = $("testButton");
+      button.disabled = true;
+      button.textContent = "Verbindung wird geprüft …";
+      clearStatus($("sourceStatus"));
+
+      try {
+        let result;
+        if (!CONFIG.apiBase) {
+          await new Promise((resolve) => setTimeout(resolve, 650));
+          result = payload.type === "xtream"
+            ? { tv: 1284, movies: 18420, series: 4821 }
+            : { tv: 1284, movies: 0, series: 0 };
+        } else {
+          result = await api("/v1/sources/test", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${state.deviceToken}` },
+            body: JSON.stringify(payload),
+          });
+        }
+
+        state.testedPayload = payload;
+        $("countTv").textContent = Number(result.tv || 0).toLocaleString("de-CH");
+        $("countMovies").textContent = Number(result.movies || 0).toLocaleString("de-CH");
+        $("countSeries").textContent = Number(result.series || 0).toLocaleString("de-CH");
+        $("sourceSummary").textContent = payload.type === "xtream" ? `Xtream Codes · ${payload.host}` : `M3U · ${payload.url}`;
+        setStep(3);
+      } catch (error) {
+        showStatus($("sourceStatus"), error.message === "DEMO_MODE" ? "Backend nicht konfiguriert." : (error.message || "Verbindung konnte nicht geprüft werden."), "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = "Verbindung prüfen";
+      }
+    });
+
+    $("sendButton").addEventListener("click", async () => {
+      if (!state.testedPayload) return;
+      const button = $("sendButton");
+      button.disabled = true;
+      button.textContent = "Wird gesendet …";
+
+      try {
+        if (!CONFIG.apiBase) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          showStatus($("sendStatus"), "Demo abgeschlossen. Mit Backend-Anbindung würde die Quelle jetzt sicher an den Fernseher übertragen.", "ok");
+        } else {
+          await api("/v1/devices/source", {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${state.deviceToken}` },
+            body: JSON.stringify(state.testedPayload),
+          });
+          showStatus($("sendStatus"), "Quelle wurde an den Fernseher gesendet. I-TV lädt den Katalog jetzt automatisch.", "ok");
+        }
+      } catch (error) {
+        showStatus($("sendStatus"), error.message || "Senden fehlgeschlagen.", "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = "An TV senden";
+      }
+    });
+
+    const queryCode = normalizeCode(new URLSearchParams(location.search).get("code") || "");
+    if (queryCode) $("deviceCode").value = queryCode;
+    if (CONFIG.apiBase) $("modeBadge").textContent = "Backend verbunden";
+  </script>
+</body>
+</html>
