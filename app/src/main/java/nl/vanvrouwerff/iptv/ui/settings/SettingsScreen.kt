@@ -48,6 +48,7 @@ import nl.vanvrouwerff.iptv.data.settings.SourceTestResult
 import nl.vanvrouwerff.iptv.ui.theme.FocusStyle
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
 import nl.vanvrouwerff.iptv.ui.theme.tvFocus
+import nl.vanvrouwerff.iptv.ui.common.tvKeyboardOnOk
 
 @Composable
 fun SettingsScreen(
@@ -304,7 +305,8 @@ private fun SourceSection(
             onValueChange = vm::setM3uUrl,
             label = { androidx.compose.material3.Text(stringResource(R.string.settings_m3u_url)) },
             singleLine = true,
-            modifier = Modifier.width(720.dp),
+            keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+            modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
         )
         SourceType.Xtream -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(
@@ -312,14 +314,16 @@ private fun SourceSection(
                 onValueChange = vm::setHost,
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_host)) },
                 singleLine = true,
-                modifier = Modifier.width(720.dp),
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
             )
             OutlinedTextField(
                 value = state.username,
                 onValueChange = vm::setUsername,
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_user)) },
                 singleLine = true,
-                modifier = Modifier.width(720.dp),
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
             )
             OutlinedTextField(
                 value = state.password,
@@ -327,8 +331,8 @@ private fun SourceSection(
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_pass)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.width(720.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, showKeyboardOnFocus = false),
+                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
             )
             OutlinedTextField(
                 value = state.categoryFilter,
@@ -338,7 +342,8 @@ private fun SourceSection(
                     androidx.compose.material3.Text(stringResource(R.string.settings_category_filter_hint))
                 },
                 singleLine = true,
-                modifier = Modifier.width(720.dp),
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                modifier = Modifier.width(720.dp).tvKeyboardOnOk(),
             )
         }
     }
