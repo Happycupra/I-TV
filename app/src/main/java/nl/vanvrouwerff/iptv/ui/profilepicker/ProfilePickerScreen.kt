@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,6 +52,7 @@ fun ProfilePickerScreen(
     vm: ProfilePickerViewModel = viewModel(),
 ) {
     val profiles by vm.profiles.collectAsState()
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     val app = nl.vanvrouwerff.iptv.IptvApp.get()
     val pin by app.settings.parentalPin.collectAsState(initial = "")
     val activeId by app.activeProfileId.collectAsState()
@@ -69,16 +71,16 @@ fun ProfilePickerScreen(
         ) {
             Text(
                 text = stringResource(R.string.profile_picker_title),
-                fontSize = 44.sp,
+                fontSize = if (compactScreen) 28.sp else 44.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = IptvPalette.TextPrimary,
             )
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(if (compactScreen) 20.dp else 48.dp))
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(horizontal = 48.dp),
-                horizontalArrangement = Arrangement.spacedBy(48.dp),
-                verticalArrangement = Arrangement.spacedBy(36.dp),
+                columns = if (compactScreen) GridCells.Adaptive(120.dp) else GridCells.Fixed(3),
+                contentPadding = PaddingValues(horizontal = if (compactScreen) 12.dp else 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compactScreen) 12.dp else 48.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactScreen) 18.dp else 36.dp),
             ) {
                 items(profiles, key = { it.id }) { profile ->
                     ProfileTile(
@@ -122,6 +124,7 @@ fun ProfilePickerScreen(
 
 @Composable
 private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (focused) 1.10f else 1f,
@@ -141,7 +144,7 @@ private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(160.dp)
+                .size(if (compactScreen) 96.dp else 160.dp)
                 .clip(CircleShape)
                 .background(Color(profile.colorArgb))
                 .focusRequester(focusRequester)
@@ -151,11 +154,11 @@ private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             if (profile.avatarEmoji != null) {
-                Text(profile.avatarEmoji, fontSize = 72.sp)
+                Text(profile.avatarEmoji, fontSize = if (compactScreen) 46.sp else 72.sp)
             } else {
                 Text(
                     text = profile.name.take(1).uppercase(),
-                    fontSize = 64.sp,
+                    fontSize = if (compactScreen) 40.sp else 64.sp,
                     fontWeight = FontWeight.Black,
                     color = Color.White.copy(alpha = 0.92f),
                 )
@@ -164,7 +167,7 @@ private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text(
             profile.name,
-            fontSize = 18.sp,
+            fontSize = if (compactScreen) 15.sp else 18.sp,
             fontWeight = FontWeight.SemiBold,
             color = if (focused) IptvPalette.TextPrimary else IptvPalette.TextSecondary,
         )

@@ -1,6 +1,7 @@
 package nl.vanvrouwerff.iptv
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -33,6 +34,7 @@ import nl.vanvrouwerff.iptv.data.catchup.Catchup
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
 import nl.vanvrouwerff.iptv.player.PlayerActivity
 import nl.vanvrouwerff.iptv.ui.categories.CategoriesScreen
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
 import nl.vanvrouwerff.iptv.ui.guide.GuideScreen
 import nl.vanvrouwerff.iptv.ui.channels.ChannelsScreen
 import nl.vanvrouwerff.iptv.ui.detail.MovieDetailScreen
@@ -52,6 +54,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (isTelevision()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         setContent {
             IptvTheme {
                 Box(modifier = Modifier.fillMaxSize()) {

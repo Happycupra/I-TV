@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,6 +59,7 @@ fun CategoriesScreen(
 ) {
     LaunchedEffect(type, initialCategory) { vm.load(type, initialCategory) }
     val state by vm.state.collectAsState()
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     BackHandler(enabled = true, onBack = onBack)
 
     val selectedFocus = remember { FocusRequester() }
@@ -79,7 +81,10 @@ fun CategoriesScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(IptvPalette.BackgroundDeep)
-            .padding(horizontal = 48.dp, vertical = 24.dp),
+            .padding(
+                horizontal = if (compactScreen) 12.dp else 48.dp,
+                vertical = if (compactScreen) 12.dp else 24.dp,
+            ),
     ) {
         Text(
             text = stringResource(R.string.categories_title, stringResource(titleRes)),
@@ -97,7 +102,7 @@ fun CategoriesScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier
-                    .width(300.dp)
+                    .width(if (compactScreen) 116.dp else 300.dp)
                     .fillMaxHeight()
                     .background(IptvPalette.SurfaceElevated, RoundedCornerShape(14.dp))
                     .padding(vertical = 8.dp),
@@ -116,7 +121,7 @@ fun CategoriesScreen(
                     }
                 }
             }
-            Spacer(Modifier.width(24.dp))
+            Spacer(Modifier.width(if (compactScreen) 8.dp else 24.dp))
             val playable = remember(state.items) { state.items.filter { it.streamUrl != null } }
             if (!state.loading && state.items.isEmpty()) {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
@@ -128,7 +133,12 @@ fun CategoriesScreen(
                 }
             } else androidx.compose.runtime.key(state.selected) {
                 LazyVerticalGrid(
-                    columns = if (type == ContentType.TV) GridCells.Adaptive(220.dp) else GridCells.Adaptive(168.dp),
+                    columns = when {
+                        compactScreen && type == ContentType.TV -> GridCells.Adaptive(150.dp)
+                        compactScreen -> GridCells.Adaptive(132.dp)
+                        type == ContentType.TV -> GridCells.Adaptive(220.dp)
+                        else -> GridCells.Adaptive(168.dp)
+                    },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp, start = 12.dp, end = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,6 +38,7 @@ import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
 fun WelcomeScreen(onConfigure: () -> Unit) {
     // A form sent from the phone lands in Instellingen: go there so it can be tested/saved.
     val phoneSubmission by nl.vanvrouwerff.iptv.data.settings.PhoneSetupServer.submission.collectAsState()
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     androidx.compose.runtime.LaunchedEffect(phoneSubmission) {
         if (phoneSubmission != null) onConfigure()
     }
@@ -44,7 +47,10 @@ fun WelcomeScreen(onConfigure: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 64.dp, vertical = 36.dp),
+                .padding(
+                    horizontal = if (compactScreen) 20.dp else 64.dp,
+                    vertical = if (compactScreen) 20.dp else 36.dp,
+                ),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.Start,
         ) {
@@ -75,22 +81,18 @@ fun WelcomeScreen(onConfigure: () -> Unit) {
 
             Spacer(Modifier.height(24.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                WizardStep(
-                    number = "1",
-                    title = stringResource(R.string.wizard_step1_title),
-                    body = stringResource(R.string.wizard_step1_body),
-                )
-                WizardStep(
-                    number = "2",
-                    title = stringResource(R.string.wizard_step2_title),
-                    body = stringResource(R.string.wizard_step2_body),
-                )
-                WizardStep(
-                    number = "3",
-                    title = stringResource(R.string.wizard_step3_title),
-                    body = stringResource(R.string.wizard_step3_body),
-                )
+            if (compactScreen) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    WizardStep("1", stringResource(R.string.wizard_step1_title), stringResource(R.string.wizard_step1_body))
+                    WizardStep("2", stringResource(R.string.wizard_step2_title), stringResource(R.string.wizard_step2_body))
+                    WizardStep("3", stringResource(R.string.wizard_step3_title), stringResource(R.string.wizard_step3_body))
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    WizardStep("1", stringResource(R.string.wizard_step1_title), stringResource(R.string.wizard_step1_body))
+                    WizardStep("2", stringResource(R.string.wizard_step2_title), stringResource(R.string.wizard_step2_body))
+                    WizardStep("3", stringResource(R.string.wizard_step3_title), stringResource(R.string.wizard_step3_body))
+                }
             }
 
             Spacer(Modifier.height(32.dp))
@@ -108,19 +110,26 @@ fun WelcomeScreen(onConfigure: () -> Unit) {
 
             Spacer(Modifier.height(20.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = onConfigure,
-                    modifier = Modifier.width(320.dp),
-                ) {
+            if (compactScreen) {
+                Button(onClick = onConfigure, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = stringResource(R.string.wizard_configure),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
                 }
-                Spacer(Modifier.width(40.dp))
-                nl.vanvrouwerff.iptv.ui.settings.PhoneSetupPanel(qrSize = 110.dp)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = onConfigure, modifier = Modifier.width(320.dp)) {
+                        Text(
+                            text = stringResource(R.string.wizard_configure),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(40.dp))
+                    nl.vanvrouwerff.iptv.ui.settings.PhoneSetupPanel(qrSize = 110.dp)
+                }
             }
         }
     }
@@ -128,9 +137,9 @@ fun WelcomeScreen(onConfigure: () -> Unit) {
 
 @Composable
 private fun WizardStep(number: String, title: String, body: String) {
+    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
     Column(
-        modifier = Modifier
-            .width(220.dp)
+        modifier = (if (compactScreen) Modifier.fillMaxWidth() else Modifier.width(220.dp))
             .clip(RoundedCornerShape(16.dp))
             .background(IptvPalette.SurfaceElevated)
             .padding(18.dp),

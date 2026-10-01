@@ -3,6 +3,7 @@ package nl.vanvrouwerff.iptv.player
 import nl.vanvrouwerff.iptv.data.DisplayNames
 import nl.vanvrouwerff.iptv.data.catchup.Catchup
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.media.AudioFormat
 import android.media.MediaCodecList
 import android.os.Bundle
@@ -58,6 +59,7 @@ import nl.vanvrouwerff.iptv.data.db.WatchedEpisodeEntity
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
 import nl.vanvrouwerff.iptv.data.db.toDomain
 import nl.vanvrouwerff.iptv.ui.theme.IptvTheme
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
 
 @OptIn(UnstableApi::class)
 class PlayerActivity : ComponentActivity() {
@@ -170,6 +172,9 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (isTelevision()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         if (intent.getStringExtra(EXTRA_CHANNEL_ID) == null) { finish(); return }
