@@ -32,9 +32,6 @@ jobs:
       - name: Apply Android TV modernization
         run: python3 scripts/modernize_android_tv.py
 
-      - name: Apply playlist resilience suite
-        run: python3 scripts/apply_playlist_resilience.py
-
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
