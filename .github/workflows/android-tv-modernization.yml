@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - refactor/android-tv-modernization
+      - localization/german-ui
   workflow_dispatch:
 
 permissions:
