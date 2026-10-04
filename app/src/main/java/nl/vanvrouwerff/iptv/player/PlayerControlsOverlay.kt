@@ -1,6 +1,8 @@
 package nl.vanvrouwerff.iptv.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
@@ -39,19 +42,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
 
 /** What the playback controls show about the current item. */
 data class ControlsUi(
@@ -83,7 +89,10 @@ fun PlayerControlsOverlay(
     onPreviousChannel: () -> Unit,
     onStartOver: () -> Unit,
     onInteraction: () -> Unit,
+    onOpenChannelList: () -> Unit = {},
 ) {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val horizontalPadding = if (compact) 16.dp else 48.dp
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var bufferedMs by remember { mutableLongStateOf(0L) }
@@ -121,7 +130,7 @@ fun PlayerControlsOverlay(
                 ),
             ),
     ) {
-        Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 32.dp, end = 200.dp)) {
+        Column(modifier = Modifier.align(Alignment.TopStart).padding(start = horizontalPadding, top = 32.dp, end = if (compact) 16.dp else 200.dp)) {
             Text(
                 text = ui.title,
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -146,7 +155,7 @@ fun PlayerControlsOverlay(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 48.dp, vertical = 28.dp)
+                .padding(horizontal = horizontalPadding, vertical = 28.dp)
                 .onPreviewKeyEvent { onInteraction(); false },
         ) {
             if (!ui.isLive && durationMs > 0L) {
@@ -181,18 +190,29 @@ fun PlayerControlsOverlay(
                 )
                 Spacer(Modifier.height(12.dp))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 ControlButton(
                     icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     label = stringResource(if (playing) R.string.player_pause else R.string.player_play),
-                    onClick = onPlayPause,
+                    onClick = { onInteraction(); onPlayPause() },
                     modifier = Modifier.focusRequester(playFocus),
                 )
                 ControlButton(
                     icon = Icons.Filled.Subtitles,
                     label = stringResource(R.string.player_tracks),
-                    onClick = onOpenTracks,
+                    onClick = { onInteraction(); onOpenTracks() },
                 )
+                if (ui.isLive) {
+                    ControlButton(
+                        icon = Icons.Filled.List,
+                        label = stringResource(R.string.player_channel_list),
+                        onClick = onOpenChannelList,
+                    )
+                }
                 if (!ui.isLive) {
                     ControlButton(
                         icon = Icons.Filled.Replay,
@@ -242,6 +262,19 @@ private fun Timebar(
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
 ) {
+    if (!LocalContext.current.isTelevision()) {
+        var scrubFraction by remember { mutableStateOf<Float?>(null) }
+        androidx.compose.material3.Slider(
+            value = scrubFraction ?: (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
+            onValueChange = { scrubFraction = it },
+            onValueChangeFinished = {
+                scrubFraction?.let { onSeekBy((it * durationMs).toLong() - positionMs) }
+                scrubFraction = null
+            },
+            modifier = modifier.fillMaxWidth(),
+        )
+        return
+    }
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onPlayPause,

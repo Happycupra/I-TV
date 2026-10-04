@@ -252,6 +252,7 @@
     <string name="favorites_order">Favoriten sortieren</string>
     <string name="favorites_hint_order">OK = aufnehmen/ablegen · ▲▼ = verschieben</string>
     <string name="channel_list_favorites">Favoriten</string>
+    <string name="player_channel_list">Senderliste</string>
     <string name="channel_list_uncategorized">Sonstige</string>
     <string name="channel_list_count">Liste %1$d von %2$d · %3$d Sender</string>
     <string name="channel_list_hint">◀▶ Kategorie · OK Umschalten · GELB Steuerung · ZURÜCK Schließen</string>

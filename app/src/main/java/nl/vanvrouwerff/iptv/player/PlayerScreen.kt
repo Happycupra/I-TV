@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,11 +63,11 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import nl.vanvrouwerff.iptv.R
@@ -99,6 +102,7 @@ fun PlayerScreen(
     onStartOver: () -> Unit = {},
     onControlsInteraction: () -> Unit = {},
     onSurfaceTap: () -> Unit = {},
+    onOpenChannelList: () -> Unit = {},
     onSelectChannelGroup: (Int) -> Unit = {},
     onZapFromList: (ChannelGroup, nl.vanvrouwerff.iptv.data.Channel) -> Unit = { _, _ -> },
     onPlayerViewReady: (PlayerView) -> Unit,
@@ -113,6 +117,7 @@ fun PlayerScreen(
     onCancelNextEpisode: () -> Unit,
 ) {
     var playerViewHandle by remember { mutableStateOf<PlayerView?>(null) }
+    val surfaceTap by rememberUpdatedState(onSurfaceTap)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -203,6 +208,13 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
+        // Handle taps above both Android views, including the subtitle view. Controls and
+        // panels drawn after this layer own their gestures, so a button tap cannot also
+        // toggle the controls underneath it.
+        Box(Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures(onTap = { surfaceTap() })
+        })
+
         // Top-left: channel info banner.
         AnimatedVisibility(
             visible = banner != null && channelList == null,
@@ -269,6 +281,7 @@ fun PlayerScreen(
                     onPreviousChannel = onPreviousChannel,
                     onStartOver = onStartOver,
                     onInteraction = onControlsInteraction,
+                    onOpenChannelList = onOpenChannelList,
                 )
             }
         }
@@ -290,6 +303,7 @@ fun PlayerScreen(
                     onSelectGroup = onSelectChannelGroup,
                     onZap = onZapFromList,
                     interactive = !ui.isPreview,
+                    onOpenPreview = onOpenChannelList,
                 )
             }
         }
@@ -411,7 +425,7 @@ private fun SkipIntroOverlay(
         exit = fadeOut(tween(220)),
         modifier = modifier.padding(end = 48.dp, bottom = 110.dp),
     ) {
-        androidx.tv.material3.Button(
+        nl.vanvrouwerff.iptv.ui.common.TouchButton(
             onClick = {
                 playerProvider()?.seekTo(SKIP_INTRO_WINDOW_MS)
                 manuallyDismissed = true

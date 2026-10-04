@@ -97,7 +97,7 @@ fun ProfilePickerScreen(
                 }
             }
             Spacer(Modifier.height(36.dp))
-            androidx.tv.material3.Button(onClick = onManageProfiles) {
+            nl.vanvrouwerff.iptv.ui.common.TouchButton(onClick = onManageProfiles) {
                 androidx.tv.material3.Text(
                     text = stringResource(R.string.profiles_manage),
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),

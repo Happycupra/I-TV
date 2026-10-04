@@ -178,6 +178,18 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             val channelListMode by channelListPresentation.mode.collectAsState()
+            androidx.activity.compose.BackHandler(
+                enabled = channelListMode != ChannelListMode.HIDDEN || tracksOverlayVisible ||
+                    statsOverlayVisible || controlsVisible || liveReturn != null,
+            ) {
+                when {
+                    channelListMode != ChannelListMode.HIDDEN -> channelListPresentation.close()
+                    tracksOverlayVisible -> tracksOverlayVisible = false
+                    statsOverlayVisible -> statsOverlayVisible = false
+                    controlsVisible -> hideControls()
+                    liveReturn != null -> returnToLive()
+                }
+            }
             IptvTheme {
                 androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
                     PlayerScreen(
@@ -221,8 +233,16 @@ class PlayerActivity : ComponentActivity() {
                         },
                         onControlsInteraction = ::bumpControlsTimer,
                         onSurfaceTap = {
-                            if (controlsVisible) hideControls() else showControls()
+                            when {
+                                errorOverlay != null -> Unit
+                                channelListMode != ChannelListMode.HIDDEN -> channelListPresentation.close()
+                                tracksOverlayVisible -> tracksOverlayVisible = false
+                                statsOverlayVisible -> statsOverlayVisible = false
+                                controlsVisible -> hideControls()
+                                else -> showControls()
+                            }
                         },
+                        onOpenChannelList = ::openChannelList,
                         subtitleDelayMs = subtitleDelayMs,
                         displayedCues = displayedCues,
                         statsOverlayVisible = statsOverlayVisible,
