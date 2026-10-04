@@ -8,6 +8,15 @@ import org.junit.Test
 class PlaybackRetryPolicyTest {
     private val networkError = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
 
+    @Test fun fallingBehindTheLiveWindowCannotLoopForever() {
+        val policy = PlaybackRetryPolicy()
+        val error = PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+        for ((index, delay) in listOf(1_500L, 4_000L, 9_000L).withIndex()) {
+            assertEquals(delay, policy.nextDelayMs(error, null, index * 1_000L))
+        }
+        assertNull(policy.nextDelayMs(error, null, 4_000L))
+    }
+
     @Test fun shortPlayingSpellsDoNotAllowUnlimitedRetries() {
         val policy = PlaybackRetryPolicy()
         for ((attempt, expected) in listOf(1_500L, 4_000L, 9_000L).withIndex()) {

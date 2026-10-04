@@ -17,6 +17,8 @@ data class PlaylistSnapshot(
     val channels: List<Channel>,
     /** EPG programmes, when the source provides them. Best-effort and independent. */
     val programmes: List<ProgrammeEntity> = emptyList(),
+    /** Optional EPG failure, kept separate from catalogue/provider health. */
+    val epgError: String? = null,
     val etag: String? = null,
     val lastModified: String? = null,
     val notModified: Boolean = false,

@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,8 +42,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,6 +60,7 @@ import androidx.tv.material3.Text
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
 import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
 
 /** What the playback controls show about the current item. */
 data class ControlsUi(
@@ -91,7 +94,8 @@ fun PlayerControlsOverlay(
     onInteraction: () -> Unit,
     onOpenChannelList: () -> Unit = {},
 ) {
-    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val compact = isCompactTouchLayout()
+    val touchInteraction by rememberUpdatedState(onInteraction)
     val horizontalPadding = if (compact) 16.dp else 48.dp
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -156,6 +160,14 @@ fun PlayerControlsOverlay(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(horizontal = horizontalPadding, vertical = 28.dp)
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.any { it.pressed }) touchInteraction()
+                        }
+                    }
+                }
                 .onPreviewKeyEvent { onInteraction(); false },
         ) {
             if (!ui.isLive && durationMs > 0L) {
@@ -242,7 +254,7 @@ fun PlayerControlsOverlay(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
+                if (LocalContext.current.isTelevision()) Text(
                     text = stringResource(if (ui.isLive) R.string.player_controls_hint_live else R.string.player_controls_hint),
                     style = MaterialTheme.typography.labelSmall,
                     color = IptvPalette.TextSecondary,

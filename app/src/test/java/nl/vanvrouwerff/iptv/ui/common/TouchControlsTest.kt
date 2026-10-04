@@ -1,21 +1,30 @@
 package nl.vanvrouwerff.iptv.ui.common
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
@@ -117,5 +126,70 @@ class TouchControlsTest {
         compose.runOnIdle { focus.requestFocus() }
         compose.onNodeWithTag("button").performKeyInput { pressKey(Key.DirectionCenter) }
         compose.runOnIdle { assertEquals(1, clicks) }
+    }
+
+    @Test fun `small phone controls have a visible tappable 56 dp target`() {
+        var clicks = 0
+        compose.setContent {
+            IptvTheme {
+                Row {
+                    TouchButton(onClick = { clicks++ }, modifier = Modifier.size(32.dp).testTag("button")) { Text("+") }
+                    TouchSurface(onClick = { clicks++ }, modifier = Modifier.size(40.dp).testTag("surface")) { Text("1") }
+                }
+            }
+        }
+        listOf("button", "surface").forEach { tag ->
+            compose.onNodeWithTag(tag)
+                .assertWidthIsAtLeast(56.dp)
+                .assertHeightIsAtLeast(56.dp)
+                .performTouchInput { click(bottomRight - Offset(1f, 1f)) }
+        }
+        compose.runOnIdle { assertEquals(2, clicks) }
+    }
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-land")
+    fun `landscape phones keep the compact touch layout`() {
+        var compact = false
+        compose.setContent {
+            compact = isCompactTouchLayout()
+            IptvTheme {
+                TouchSurface(onClick = {}, modifier = Modifier.size(40.dp).testTag("surface")) { Text("1") }
+            }
+        }
+        compose.runOnIdle { assertEquals(true, compact) }
+        compose.onNodeWithTag("surface").assertWidthIsAtLeast(56.dp).assertHeightIsAtLeast(56.dp)
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    fun `TV controls preserve their requested size and layout`() {
+        var compact = true
+        compose.setContent {
+            compact = isCompactTouchLayout()
+            IptvTheme {
+                TouchSurface(onClick = {}, modifier = Modifier.size(40.dp).testTag("surface")) { Text("1") }
+            }
+        }
+        compose.runOnIdle { assertEquals(false, compact) }
+        compose.onNodeWithTag("surface").assertWidthIsEqualTo(40.dp).assertHeightIsEqualTo(40.dp)
+    }
+
+    @Test fun `PIN entry remains reachable in a short landscape viewport`() {
+        var entered = ""
+        compose.setContent {
+            IptvTheme {
+                Box(Modifier.size(width = 320.dp, height = 280.dp)) {
+                    nl.vanvrouwerff.iptv.ui.parental.PinPad(
+                        title = "PIN", error = null,
+                        onComplete = { entered = it }, onCancel = {},
+                    )
+                }
+            }
+        }
+        listOf("1", "2", "3", "0").forEach { digit ->
+            compose.onNodeWithText(digit).performScrollTo().performTouchInput { click() }
+        }
+        compose.runOnIdle { assertEquals("1230", entered) }
     }
 }

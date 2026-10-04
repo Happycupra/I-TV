@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -13,6 +14,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -31,6 +33,15 @@ import androidx.tv.material3.ClickableSurfaceShape
 import androidx.tv.material3.Glow
 import androidx.tv.material3.SurfaceColors
 import androidx.tv.material3.SurfaceDefaults
+
+val MinimumTouchTargetSize = 56.dp
+
+/** Enlarge the actual hit area instead of placing overlapping invisible targets around it. */
+@Composable
+private fun touchTarget(modifier: Modifier): Modifier =
+    if (LocalContext.current.isTelevision()) modifier
+    else Modifier.sizeIn(minWidth = MinimumTouchTargetSize, minHeight = MinimumTouchTargetSize)
+        .then(modifier)
 
 /** TV Material handles D-pad clicks only. Add pointer gestures without a second key handler
  * or focus target. detectTapGestures cancels a tap when a parent list starts scrolling. */
@@ -83,7 +94,7 @@ fun TouchButton(
     val interactions = interactionSource ?: remember { MutableInteractionSource() }
     androidx.tv.material3.Button(
         onClick = onClick,
-        modifier = modifier.touchInput(enabled, onClick, onLongClick, interactions),
+        modifier = touchTarget(modifier).touchInput(enabled, onClick, onLongClick, interactions),
         onLongClick = onLongClick,
         enabled = enabled,
         scale = scale,
@@ -116,7 +127,7 @@ fun TouchSurface(
     val interactions = interactionSource ?: remember { MutableInteractionSource() }
     androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = modifier.touchInput(enabled, onClick, onLongClick, interactions),
+        modifier = touchTarget(modifier).touchInput(enabled, onClick, onLongClick, interactions),
         onLongClick = onLongClick,
         enabled = enabled,
         tonalElevation = tonalElevation,

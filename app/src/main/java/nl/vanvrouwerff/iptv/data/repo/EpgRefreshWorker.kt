@@ -19,7 +19,12 @@ class EpgRefreshWorker(
 
     override suspend fun doWork(): Result {
         val app = applicationContext as IptvApp
-        return if (app.refreshUseCase.refreshEpg().isSuccess) Result.success() else Result.retry()
+        val result = app.refreshUseCase.refreshEpg()
+        return when {
+            result.isSuccess || result.exceptionOrNull() is EpgUnavailableException -> Result.success()
+            runAttemptCount < 3 -> Result.retry()
+            else -> Result.failure()
+        }
     }
 
     companion object {

@@ -38,6 +38,7 @@ internal class PlaybackRetryPolicy {
         private val RETRY_DELAYS_MS = longArrayOf(1_500L, 4_000L, 9_000L)
 
         private fun isRetryable(errorCode: Int, httpStatus: Int?): Boolean = when (errorCode) {
+            PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW,
             PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> true

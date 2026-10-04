@@ -28,6 +28,7 @@ import kotlinx.serialization.json.contentOrNull
 import nl.vanvrouwerff.iptv.IptvApp
 import nl.vanvrouwerff.iptv.data.db.SeriesInfoCacheEntity
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
 import nl.vanvrouwerff.iptv.data.xtream.XtreamApi
 import nl.vanvrouwerff.iptv.data.xtream.XtreamUrls
@@ -152,7 +153,7 @@ class SeriesDetailViewModel : ViewModel() {
                 return@launch
             }
 
-            val result = runCatching {
+            val result = runCatchingCancellable {
                 withContext(Dispatchers.IO) {
                     val raw = loadSeriesInfoCachedOrFetch(seriesId, config)
                     buildSeasons(raw, config)
@@ -252,7 +253,8 @@ class SeriesDetailViewModel : ViewModel() {
         config: SourceConfig.Xtream,
     ): XtreamSeriesInfoResponse {
         val now = System.currentTimeMillis()
-        val cache = dao.getSeriesInfoCache(seriesId)
+        val cacheKey = seriesInfoCacheKey(config, seriesId)
+        val cache = dao.getSeriesInfoCache(cacheKey)
         if (cache != null && now - cache.fetchedAt < SERIES_CACHE_TTL_MS) {
             runCatching {
                 return HttpClient.json.decodeFromString(
@@ -271,7 +273,7 @@ class SeriesDetailViewModel : ViewModel() {
         if (payload != null) {
             dao.putSeriesInfoCache(
                 SeriesInfoCacheEntity(
-                    seriesId = seriesId,
+                    seriesId = cacheKey,
                     payloadJson = payload,
                     fetchedAt = now,
                 ),

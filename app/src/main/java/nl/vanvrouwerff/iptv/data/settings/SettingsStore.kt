@@ -248,28 +248,54 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setCategoryFilter(raw: String) {
         context.dataStore.edit { prefs ->
+            if ((prefs[CATEGORY_FILTER] ?: DEFAULT_CATEGORY_FILTER) != raw.trim()) {
+                prefs.remove(LAST_REFRESH_AT)
+                prefs.remove(CATALOGUE_VERSION)
+                prefs.remove(LAST_EPG_REFRESH_AT)
+            }
             prefs[CATEGORY_FILTER] = raw.trim()
             prefs.remove(PLAYLIST_ETAG); prefs.remove(PLAYLIST_LAST_MODIFIED)
         }
     }
 
-    suspend fun saveM3u(url: String) {
-        context.dataStore.edit { prefs ->
-            prefs[TYPE] = TYPE_M3U
-            prefs[M3U_URL] = url.trim()
-            prefs.remove(XT_HOST); prefs.remove(XT_USER); prefs.remove(XT_PASS)
-            prefs.remove(PLAYLIST_ETAG); prefs.remove(PLAYLIST_LAST_MODIFIED)
-        }
-    }
+    suspend fun saveM3u(url: String) = saveSource(SourceConfig.M3u(url))
 
-    suspend fun saveXtream(host: String, username: String, password: String) {
+    suspend fun saveXtream(host: String, username: String, password: String) =
+        saveSource(SourceConfig.Xtream(host, username, password))
+
+    /** Source and filter form one configuration; a refresh must never see half a save. */
+    suspend fun saveSource(source: SourceConfig, categoryFilter: String? = null) {
         context.dataStore.edit { prefs ->
-            prefs[TYPE] = TYPE_XTREAM
-            prefs[XT_HOST] = host.trim().trimEnd('/')
-            prefs[XT_USER] = username.trim()
-            prefs[XT_PASS] = password
-            prefs.remove(M3U_URL)
-            prefs.remove(PLAYLIST_ETAG); prefs.remove(PLAYLIST_LAST_MODIFIED)
+            val sourceChanged = when (source) {
+                is SourceConfig.M3u -> prefs[TYPE] != TYPE_M3U || prefs[M3U_URL] != source.url.trim()
+                is SourceConfig.Xtream -> prefs[TYPE] != TYPE_XTREAM ||
+                    prefs[XT_HOST] != source.host.trim().trimEnd('/') ||
+                    prefs[XT_USER] != source.username.trim() || prefs[XT_PASS] != source.password
+            }
+            val filterChanged = categoryFilter != null &&
+                (prefs[CATEGORY_FILTER] ?: DEFAULT_CATEGORY_FILTER) != categoryFilter.trim()
+            when (source) {
+                is SourceConfig.M3u -> {
+                    prefs[TYPE] = TYPE_M3U
+                    prefs[M3U_URL] = source.url.trim()
+                    prefs.remove(XT_HOST); prefs.remove(XT_USER); prefs.remove(XT_PASS)
+                }
+                is SourceConfig.Xtream -> {
+                    prefs[TYPE] = TYPE_XTREAM
+                    prefs[XT_HOST] = source.host.trim().trimEnd('/')
+                    prefs[XT_USER] = source.username.trim()
+                    prefs[XT_PASS] = source.password
+                    prefs.remove(M3U_URL)
+                }
+            }
+            if (categoryFilter != null) prefs[CATEGORY_FILTER] = categoryFilter.trim()
+            if (sourceChanged || filterChanged) {
+                prefs.remove(LAST_REFRESH_AT)
+                prefs.remove(CATALOGUE_VERSION)
+                prefs.remove(LAST_EPG_REFRESH_AT)
+                prefs.remove(PLAYLIST_ETAG)
+                prefs.remove(PLAYLIST_LAST_MODIFIED)
+            }
         }
     }
 

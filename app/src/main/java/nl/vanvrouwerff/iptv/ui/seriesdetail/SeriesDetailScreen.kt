@@ -52,7 +52,6 @@ import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import nl.vanvrouwerff.iptv.R
-import androidx.compose.ui.platform.LocalContext
 import nl.vanvrouwerff.iptv.ui.detail.FocusableTextBlock
 import nl.vanvrouwerff.iptv.ui.detail.detailSection
 import nl.vanvrouwerff.iptv.ui.detail.DetailScaffold
@@ -104,7 +103,8 @@ private fun DetailBody(
         androidx.compose.runtime.withFrameNanos { }
         runCatching { playFocus.requestFocus() }
     }
-    val context = LocalContext.current
+    val overviewTitle = stringResource(R.string.detail_section_overview)
+    val episodesTitle = stringResource(R.string.series_section_episodes)
 
     val meta = listOfNotNull(
         state.releaseYear,
@@ -153,11 +153,11 @@ private fun DetailBody(
         },
     ) {
         state.plot?.takeIf { it.isNotBlank() }?.let { plot ->
-            detailSection(key = "plot", title = context.getString(R.string.detail_section_overview)) {
+            detailSection(key = "plot", title = overviewTitle) {
                 FocusableTextBlock(text = plot)
             }
         }
-        detailSection(key = "episodes", title = context.getString(R.string.series_section_episodes)) {
+        detailSection(key = "episodes", title = episodesTitle) {
             EpisodesBlock(
                 state = state,
                 onSelectSeason = onSelectSeason,

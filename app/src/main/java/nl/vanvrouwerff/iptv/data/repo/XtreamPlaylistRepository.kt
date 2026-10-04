@@ -2,6 +2,8 @@ package nl.vanvrouwerff.iptv.data.repo
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.builtins.ListSerializer
@@ -14,6 +16,8 @@ import nl.vanvrouwerff.iptv.data.Channel
 import nl.vanvrouwerff.iptv.data.ContentType
 import nl.vanvrouwerff.iptv.data.db.ProgrammeEntity
 import nl.vanvrouwerff.iptv.data.epg.XmltvParser
+import nl.vanvrouwerff.iptv.data.epg.EpgSources
+import nl.vanvrouwerff.iptv.data.epg.withEpgResponse
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
 import nl.vanvrouwerff.iptv.data.xtream.CategoryFilter
 import nl.vanvrouwerff.iptv.data.xtream.XtreamApi
@@ -23,6 +27,9 @@ import nl.vanvrouwerff.iptv.data.xtream.XtreamLiveStream
 import nl.vanvrouwerff.iptv.data.xtream.XtreamSeries
 import nl.vanvrouwerff.iptv.data.xtream.XtreamVodStream
 import okhttp3.ResponseBody
+import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import java.io.IOException
 
 class XtreamPlaylistRepository(
     private val host: String,
@@ -112,20 +119,18 @@ class XtreamPlaylistRepository(
         )
 
         val keptEpgIds = live.mapNotNullTo(HashSet()) { it.epgChannelId }
+        var epgError: String? = null
         val programmes: List<ProgrammeEntity> = runCatchingCancellable {
-            retryProviderCall("Xtream EPG", longArrayOf(1_500L)) {
-                api.getXmltv(username, password).useStream { stream ->
-                    XmltvParser.parse(stream) { key -> key in keptEpgIds }
-                }
-            }
+            if (keptEpgIds.isEmpty()) emptyList() else fetchProgrammes(keptEpgIds)
         }.onSuccess {
             Log.i(TAG, "EPG: ${it.size} programmes")
         }.onFailure {
+            epgError = safeError(it)
             // EPG never invalidates catalogue data.
             Log.e(TAG, "EPG fetch/parse failed; keeping existing EPG", it)
         }.getOrElse { emptyList() }
 
-        PlaylistSnapshot(channels = live + vod + series, programmes = programmes).also {
+        PlaylistSnapshot(channels = live + vod + series, programmes = programmes, epgError = epgError).also {
             if (vodError != null || seriesError != null) {
                 Log.w(TAG, "Partial Xtream refresh completed with preserved partitions")
             }
@@ -134,9 +139,19 @@ class XtreamPlaylistRepository(
 
     override suspend fun fetchProgrammes(epgKeys: Set<String>): List<ProgrammeEntity> =
         withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
             retryProviderCall("Xtream EPG", longArrayOf(1_500L)) {
-                api.getXmltv(username, password).useStream { stream ->
-                    XmltvParser.parse(stream) { key -> key in epgKeys }
+                val endpoint = "${host.trimEnd('/')}/xmltv.php".toHttpUrl().newBuilder()
+                    .addQueryParameter("username", username).addQueryParameter("password", password).build()
+                HttpClient.okHttp.newCall(Request.Builder().url(endpoint).build()).withEpgResponse { response ->
+                    if (!response.isSuccessful) {
+                        if (PlaylistResilience.isRetryableHttp(response.code)) throw IOException("EPG HTTP ${response.code}")
+                        error("EPG HTTP ${response.code}")
+                    }
+                    val body = response.body ?: error("Leere EPG-Antwort")
+                    EpgSources.xmlStream(body.byteStream()).use { xml ->
+                        XmltvParser.parse(xml, keepChannel = { key -> key in epgKeys }, checkCancelled = { context.ensureActive() })
+                    }
                 }
             }
         }

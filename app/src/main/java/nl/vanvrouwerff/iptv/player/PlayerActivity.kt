@@ -49,6 +49,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nl.vanvrouwerff.iptv.IptvApp
@@ -85,8 +86,10 @@ class PlayerActivity : ComponentActivity() {
     private var liveProgramme by mutableStateOf<nl.vanvrouwerff.iptv.data.db.ProgrammeEntity?>(null)
     private var liveProgrammeJob: kotlinx.coroutines.Job? = null
     private var playingChannel: Channel? = null
+    private var resumePlayWhenReady = true
     private var progressJob: Job? = null
     private var statsJob: Job? = null
+    private var epgObserverJob: Job? = null
     private var cueJob: Job? = null
 
     // Buffered subtitle cues so we can render them with a user-controlled delay. Each entry
@@ -329,6 +332,7 @@ class PlayerActivity : ComponentActivity() {
         }
 
         channelsLoaded = false
+        resumePlayWhenReady = true
         numberedChannels = emptyList()
         numberById = emptyMap()
         channelGroups = emptyList()
@@ -338,7 +342,31 @@ class PlayerActivity : ComponentActivity() {
         channelListPresentation.close()
         loadJob?.cancel()
         loadJob = lifecycleScope.launch {
-            val loaded = when {
+            val queueReference = intent.getStringExtra(EPISODE_QUEUE_REFERENCE_EXTRA)
+            val storedQueue = if (queueReference != null) {
+                runCatchingCancellable {
+                    withContext(Dispatchers.IO) { EpisodeQueueStore(cacheDir).read(queueReference) }
+                }.onFailure { Log.w(TAG, "Could not read episode playback queue", it) }.getOrNull()
+                    ?: run { reportPlaybackLoadFailure(); return@launch }
+            } else null
+            storedQueue?.let { queue ->
+                seriesMeta = SeriesMeta(
+                    seriesChannelId = queue.seriesChannelId,
+                    seriesName = queue.seriesName,
+                    seasonNumber = queue.seasonNumber,
+                    episodeNumbers = queue.episodes.map { it.episodeNumber }.toIntArray(),
+                    coverUrls = queue.episodes.map { it.cover.orEmpty() }.toTypedArray(),
+                    durationsSecs = queue.episodes.map { it.durationSecs }.toLongArray(),
+                    fallbackCover = queue.seriesCover,
+                )
+            }
+            val loaded = runCatchingCancellable { when {
+                storedQueue != null -> storedQueue.episodes.map { episode ->
+                    Channel(
+                        id = episode.id, name = episode.name, streamUrl = episode.url,
+                        logoUrl = null, groupTitle = null, epgChannelId = null, type = ContentType.SERIES,
+                    )
+                }
                 adhocIds != null && adhocUrls != null && adhocIds.size == adhocUrls.size -> {
                     val type = adhocType
                         ?.let { runCatching { ContentType.valueOf(it) }.getOrNull() }
@@ -357,6 +385,8 @@ class PlayerActivity : ComponentActivity() {
                 }
                 else -> withContext(Dispatchers.IO) { loadChannels(ids, scopeType) }
             }
+            }.onFailure { Log.w(TAG, "Could not load playback queue", it) }
+                .getOrNull() ?: run { reportPlaybackLoadFailure(); return@launch }
             if (loaded.isEmpty()) { finish(); return@launch }
             channels = loaded
             currentIndex = loaded.indexOfFirst { it.id == startId }.coerceAtLeast(0)
@@ -366,6 +396,11 @@ class PlayerActivity : ComponentActivity() {
             channelsLoaded = true
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) startPlayback()
         }
+    }
+
+    private fun reportPlaybackLoadFailure() {
+        android.widget.Toast.makeText(this, R.string.player_load_failed, android.widget.Toast.LENGTH_LONG).show()
+        finish()
     }
 
     private suspend fun loadChannels(ids: List<String>, scopeType: String?): List<Channel> {
@@ -505,13 +540,6 @@ class PlayerActivity : ComponentActivity() {
                 if (player !== p) return
                 val channel = channels.getOrNull(currentIndex)
                 val code = error.errorCode
-                if (code == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
-                    player?.run {
-                        seekToDefaultPosition()
-                        prepare()
-                    }
-                    return
-                }
                 autoRetryJob?.cancel()
                 val httpStatus = generateSequence<Throwable>(error) { it.cause }
                     .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
@@ -525,7 +553,10 @@ class PlayerActivity : ComponentActivity() {
                         delay(retryDelayMs)
                         // Channel might have changed during the wait (user hit CH+/-): skip
                         // the retry in that case, the new channel's own prepare() is running.
-                        if (player === p && playingChannel?.id == channel?.id) retryCurrent()
+                        if (player === p && playingChannel?.id == channel?.id) {
+                            if (code == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) p.seekToDefaultPosition()
+                            retryCurrent()
+                        }
                     }
                     return
                 }
@@ -534,7 +565,7 @@ class PlayerActivity : ComponentActivity() {
                 // staring at a black screen wondering whether to touch anything.
                 errorOverlay = ErrorState(
                     channelName = channel?.name.orEmpty(),
-                    message = error.message ?: error.errorCodeName,
+                    message = HttpClient.redact(error.message ?: error.errorCodeName),
                     canSkip = channels.size > 1,
                 )
             }
@@ -581,11 +612,19 @@ class PlayerActivity : ComponentActivity() {
         player = p
         playerViewRef?.player = p
         playChannel(currentIndex, initialResumeMs)
-        p.playWhenReady = true
+        p.playWhenReady = resumePlayWhenReady
         startProgressLoop()
         startStatsLoop()
         startCueLoop()
         startNextEpisodeLoop()
+        epgObserverJob?.cancel()
+        epgObserverJob = lifecycleScope.launch {
+            IptvApp.get().settings.lastEpgRefreshAt.distinctUntilChanged().collect {
+                playingChannel?.let(::loadLiveProgramme)
+                channelListNowLoadedAtMs = 0L
+                if (channelListPresentation.mode.value != ChannelListMode.HIDDEN) refreshChannelListNow()
+            }
+        }
     }
 
     /**
@@ -700,26 +739,29 @@ class PlayerActivity : ComponentActivity() {
         val app = IptvApp.get()
         val profileId = app.activeProfileId.value
         if (Catchup.isCatchupId(channel.id)) return
+        val episodeMeta = seriesMeta?.takeIf { channel.type == ContentType.SERIES }
         app.appScope.launch {
-            app.settings.setLastWatched(profileId, channel.id)
-            seriesMeta?.takeIf { channel.type == ContentType.SERIES }?.let { meta ->
-                dao.rememberEpisode(
-                    WatchedEpisodeEntity(
-                        profileId = profileId,
-                        episodeId = channel.id,
-                        seriesChannelId = meta.seriesChannelId,
-                        seriesName = meta.seriesName,
-                        seasonNumber = meta.seasonNumber,
-                        episodeNumber = meta.episodeNumbers?.getOrNull(index) ?: 0,
-                        episodeTitle = channel.name,
-                        streamUrl = url,
-                        coverUrl = meta.coverUrls?.getOrNull(index)?.takeIf { it.isNotBlank() }
-                            ?: meta.fallbackCover,
-                        durationSecs = meta.durationsSecs?.getOrNull(index) ?: 0L,
-                        firstWatchedAt = System.currentTimeMillis(),
-                    ),
-                )
-            }
+            runCatchingCancellable {
+                app.settings.setLastWatched(profileId, channel.id)
+                episodeMeta?.let { meta ->
+                    dao.rememberEpisode(
+                        WatchedEpisodeEntity(
+                            profileId = profileId,
+                            episodeId = channel.id,
+                            seriesChannelId = meta.seriesChannelId,
+                            seriesName = meta.seriesName,
+                            seasonNumber = meta.seasonNumber,
+                            episodeNumber = meta.episodeNumbers?.getOrNull(index) ?: 0,
+                            episodeTitle = channel.name,
+                            streamUrl = url,
+                            coverUrl = meta.coverUrls?.getOrNull(index)?.takeIf { it.isNotBlank() }
+                                ?: meta.fallbackCover,
+                            durationSecs = meta.durationsSecs?.getOrNull(index) ?: 0L,
+                            firstWatchedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+            }.onFailure { Log.w(TAG, "Could not persist optional playback history", it) }
         }
         if (channel.type == ContentType.TV && previousId != null && previousId != channel.id) {
             showChannelList(preview = true)
@@ -860,16 +902,18 @@ class PlayerActivity : ComponentActivity() {
         // App scope: this also runs from onStop right before the activity (and its
         // lifecycleScope) is destroyed, and the final position must not be dropped.
         IptvApp.get().appScope.launch {
-            val savePos = if (remaining < FINISH_THRESHOLD_MS) dur else pos
-            dao.saveProgress(
-                WatchProgressEntity(
-                    profileId = profileId,
-                    channelId = channel.id,
-                    positionMs = savePos,
-                    durationMs = dur,
-                    updatedAt = System.currentTimeMillis(),
-                ),
-            )
+            runCatchingCancellable {
+                val savePos = if (remaining < FINISH_THRESHOLD_MS) dur else pos
+                dao.saveProgress(
+                    WatchProgressEntity(
+                        profileId = profileId,
+                        channelId = channel.id,
+                        positionMs = savePos,
+                        durationMs = dur,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }.onFailure { Log.w(TAG, "Could not persist playback progress", it) }
         }
     }
 
@@ -1448,6 +1492,7 @@ class PlayerActivity : ComponentActivity() {
             window.attributes = window.attributes.also { it.preferredDisplayModeId = 0 }
         }
         val p = player
+        if (p != null) resumePlayWhenReady = p.playWhenReady
         val current = channels.getOrNull(currentIndex)
         if (p != null && current != null && current.type != ContentType.TV) {
             pendingResumeMs = p.currentPosition.coerceAtLeast(0L)
@@ -1457,6 +1502,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun stopPlayback() {
+        epgObserverJob?.cancel()
+        epgObserverJob = null
         frameRateJob?.cancel()
         frameRateJob = null
         liveProgrammeJob?.cancel()

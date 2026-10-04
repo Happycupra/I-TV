@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -35,7 +36,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,7 +53,7 @@ fun ProfilePickerScreen(
     vm: ProfilePickerViewModel = viewModel(),
 ) {
     val profiles by vm.profiles.collectAsState()
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     val app = nl.vanvrouwerff.iptv.IptvApp.get()
     val pin by app.settings.parentalPin.collectAsState(initial = "")
     val activeId by app.activeProfileId.collectAsState()
@@ -67,16 +68,20 @@ fun ProfilePickerScreen(
         contentAlignment = Alignment.Center,
     ) {
         Column(
+            modifier = Modifier.fillMaxSize().padding(vertical = if (compactScreen) 16.dp else 32.dp),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 text = stringResource(R.string.profile_picker_title),
+                modifier = Modifier.padding(horizontal = 16.dp),
                 fontSize = if (compactScreen) 28.sp else 44.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = IptvPalette.TextPrimary,
             )
             Spacer(Modifier.height(if (compactScreen) 20.dp else 48.dp))
             LazyVerticalGrid(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 columns = if (compactScreen) GridCells.Adaptive(120.dp) else GridCells.Fixed(3),
                 contentPadding = PaddingValues(horizontal = if (compactScreen) 12.dp else 48.dp),
                 horizontalArrangement = Arrangement.spacedBy(if (compactScreen) 12.dp else 48.dp),
@@ -124,7 +129,7 @@ fun ProfilePickerScreen(
 
 @Composable
 private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (focused) 1.10f else 1f,
@@ -140,17 +145,16 @@ private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .scale(scale)
+            .focusRequester(focusRequester)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
             .padding(8.dp),
     ) {
         Box(
             modifier = Modifier
                 .size(if (compactScreen) 96.dp else 160.dp)
                 .clip(CircleShape)
-                .background(Color(profile.colorArgb))
-                .focusRequester(focusRequester)
-                .onFocusChanged { focused = it.isFocused }
-                .focusable()
-                .clickable(onClick = onClick),
+                .background(Color(profile.colorArgb)),
             contentAlignment = Alignment.Center,
         ) {
             if (profile.avatarEmoji != null) {
@@ -167,6 +171,7 @@ private fun ProfileTile(profile: ProfileEntity, onClick: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text(
             profile.name,
+            maxLines = 2,
             fontSize = if (compactScreen) 15.sp else 18.sp,
             fontWeight = FontWeight.SemiBold,
             color = if (focused) IptvPalette.TextPrimary else IptvPalette.TextSecondary,

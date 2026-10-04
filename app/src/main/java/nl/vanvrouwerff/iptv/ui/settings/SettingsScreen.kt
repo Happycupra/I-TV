@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package nl.vanvrouwerff.iptv.ui.settings
 
 import androidx.activity.compose.BackHandler
@@ -6,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +35,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -60,7 +66,7 @@ fun SettingsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     var pinDialog by remember { mutableStateOf(false) }
 
     // BACK goes back without saving — matches the "Terug"-labelled button below, so the
@@ -71,6 +77,8 @@ fun SettingsScreen(
         // Scrollable: on a 1080p TV (960×540 dp) the lower sections don't fit otherwise.
         Column(
             modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(
                     horizontal = if (compactScreen) 16.dp else 64.dp,
@@ -124,10 +132,33 @@ fun SettingsScreen(
                 )
             }
 
+            SettingsSection(title = stringResource(R.string.settings_section_epg)) {
+                Text(
+                    stringResource(R.string.settings_epg_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = IptvPalette.TextSecondary,
+                )
+                Button(onClick = vm::syncEpg, enabled = !state.epgRefreshing) {
+                    Text(stringResource(if (state.epgRefreshing) R.string.guide_epg_syncing else R.string.guide_epg_sync))
+                }
+                Text(
+                    if (state.lastEpgRefreshAt > 0L) stringResource(
+                        R.string.guide_epg_updated,
+                        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                            .format(java.util.Date(state.lastEpgRefreshAt)),
+                    ) else stringResource(R.string.guide_epg_never_synced),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = IptvPalette.TextSecondary,
+                )
+                state.epgError?.let { error ->
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = IptvPalette.Accent)
+                }
+            }
+
             SettingsSection(title = stringResource(R.string.settings_section_refresh)) {
-                Row(
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(onClick = { vm.refreshNow() }) {
                         Text(
@@ -162,9 +193,9 @@ fun SettingsScreen(
                     onToggle = { vm.setAutoRefreshEnabled(!state.autoRefreshEnabled) },
                 )
                 if (state.autoRefreshEnabled) {
-                    Row(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(onClick = { vm.bumpAutoRefreshHour(-1) }) {
                             Text(stringResource(R.string.settings_auto_refresh_hour_prev))
@@ -187,9 +218,9 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = IptvPalette.TextSecondary,
                 )
-                Row(
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(
                         onClick = vm::clearCache,
@@ -286,6 +317,7 @@ private fun SourceSection(
     onSaved: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val touchDevice = !LocalContext.current.isTelevision()
     OutlinedTextField(
         value = state.quickSetupUrl,
         onValueChange = vm::setQuickSetupUrl,
@@ -294,7 +326,7 @@ private fun SourceSection(
             androidx.compose.material3.Text(stringResource(R.string.settings_quick_url_hint))
         },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = touchDevice),
         modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
     )
     if (state.xtreamUrlDetected) {
@@ -305,7 +337,7 @@ private fun SourceSection(
         )
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SegmentPill(
             label = stringResource(R.string.settings_source_m3u),
             selected = state.type == SourceType.M3u,
@@ -330,7 +362,7 @@ private fun SourceSection(
             onValueChange = vm::setM3uUrl,
             label = { androidx.compose.material3.Text(stringResource(R.string.settings_m3u_url)) },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+            keyboardOptions = KeyboardOptions(showKeyboardOnFocus = touchDevice),
             modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
         )
         SourceType.Xtream -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -339,7 +371,7 @@ private fun SourceSection(
                 onValueChange = vm::setHost,
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_host)) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = touchDevice),
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
             OutlinedTextField(
@@ -347,7 +379,7 @@ private fun SourceSection(
                 onValueChange = vm::setUsername,
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_user)) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = touchDevice),
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
             OutlinedTextField(
@@ -356,7 +388,7 @@ private fun SourceSection(
                 label = { androidx.compose.material3.Text(stringResource(R.string.settings_xtream_pass)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, showKeyboardOnFocus = false),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, showKeyboardOnFocus = touchDevice),
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
             OutlinedTextField(
@@ -367,7 +399,7 @@ private fun SourceSection(
                     androidx.compose.material3.Text(stringResource(R.string.settings_category_filter_hint))
                 },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = touchDevice),
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
             )
         }
@@ -377,8 +409,8 @@ private fun SourceSection(
         Text(text = it, style = MaterialTheme.typography.bodyMedium, color = IptvPalette.Accent)
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Button(onClick = { vm.save(onSaved) }) { Text(stringResource(R.string.settings_save)) }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { vm.save(onSaved) }, enabled = !state.saving) { Text(stringResource(R.string.settings_save)) }
         Button(onClick = vm::testConnection) {
             Text(stringResource(if (state.testing) R.string.settings_testing else R.string.settings_test))
         }
@@ -501,6 +533,7 @@ private fun SwitchVisual(checked: Boolean) {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ChoiceRow(title: String, value: String, onClick: () -> Unit) {
+    val compactScreen = isCompactTouchLayout()
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     Surface(
@@ -518,16 +551,26 @@ private fun ChoiceRow(title: String, value: String, onClick: () -> Unit) {
             .onFocusChanged { focused = it.isFocused }
             .tvFocus(focused, shape),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            Text(
-                text = "$value  ›",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = IptvPalette.AccentSoft,
-            )
+        if (compactScreen) {
+            Column(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text("$value  ›", style = MaterialTheme.typography.titleSmall, color = IptvPalette.AccentSoft)
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(
+                    text = "$value  ›",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = IptvPalette.AccentSoft,
+                )
+            }
         }
     }
 }

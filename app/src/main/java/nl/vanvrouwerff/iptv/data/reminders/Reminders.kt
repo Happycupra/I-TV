@@ -1,5 +1,6 @@
 package nl.vanvrouwerff.iptv.data.reminders
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.launch
 import nl.vanvrouwerff.iptv.data.Channel
 import nl.vanvrouwerff.iptv.data.db.ChannelDao
 import nl.vanvrouwerff.iptv.data.db.ReminderEntity
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 
 /**
  * Programme reminders: stored in Room, checked while the app runs, and surfaced as a prompt
@@ -28,7 +30,8 @@ class Reminders(
     fun start() {
         scope.launch {
             while (true) {
-                runCatching { check(System.currentTimeMillis()) }
+                runCatchingCancellable { check(System.currentTimeMillis()) }
+                    .onFailure { Log.w("Reminders", "Could not check reminders", it) }
                 delay(CHECK_INTERVAL_MS)
             }
         }
@@ -54,8 +57,10 @@ class Reminders(
     fun dismiss(reminder: ReminderEntity) {
         if (_due.value == reminder) _due.value = null
         scope.launch {
-            dao.deleteReminder(reminder.channelId, reminder.startMs)
-            check(System.currentTimeMillis())
+            runCatchingCancellable {
+                dao.deleteReminder(reminder.channelId, reminder.startMs)
+                check(System.currentTimeMillis())
+            }.onFailure { Log.w("Reminders", "Could not dismiss reminder", it) }
         }
     }
 

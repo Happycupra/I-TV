@@ -326,4 +326,17 @@
     <string name="settings_pin_remove">PIN entfernen</string>
     <string name="profiles_kids_label">Kinderprofil</string>
     <string name="profiles_kids_body">Blendet Kategorien für Erwachsene aus. Für einen Profilwechsel ist die PIN erforderlich.</string>
+    <string name="settings_section_epg">Programmübersicht (EPG)</string>
+    <string name="guide_epg_sync">EPG synchronisieren</string>
+    <string name="guide_epg_syncing">EPG wird synchronisiert…</string>
+    <string name="guide_epg_never_synced">Noch keine Programmdaten synchronisiert</string>
+    <string name="guide_epg_updated">Zuletzt synchronisiert: %1$s</string>
+    <string name="settings_epg_description">Aktualisiert die Programmdaten automatisch, wenn sie älter als sechs Stunden sind. Xtream und EPG-Adressen in M3U-Listen werden unterstützt. Bei einem Fehler bleiben die bisherigen Programmdaten erhalten.</string>
+    <string name="guide_load_failed">Die Programmübersicht konnte nicht geladen werden. Bitte erneut versuchen.</string>
+    <string name="favorites_move_up">Nach oben verschieben</string>
+    <string name="favorites_move_down">Nach unten verschieben</string>
+    <string name="favorites_hint_touch_order">Mit den Pfeilen verschieben</string>
+    <string name="favorites_hint_touch_add">Antippen zum Hinzufügen oder Entfernen</string>
+    <string name="player_load_failed">Die Wiedergabe konnte nicht gestartet werden. Bitte erneut versuchen.</string>
+    <string name="settings_save_failed">Die Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.</string>
 </resources>

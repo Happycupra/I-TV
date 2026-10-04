@@ -22,7 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,7 +38,7 @@ import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
 fun WelcomeScreen(onConfigure: () -> Unit) {
     // A form sent from the phone lands in Instellingen: go there so it can be tested/saved.
     val phoneSubmission by nl.vanvrouwerff.iptv.data.settings.PhoneSetupServer.submission.collectAsState()
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     androidx.compose.runtime.LaunchedEffect(phoneSubmission) {
         if (phoneSubmission != null) onConfigure()
     }
@@ -137,7 +137,7 @@ fun WelcomeScreen(onConfigure: () -> Unit) {
 
 @Composable
 private fun WizardStep(number: String, title: String, body: String) {
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     Column(
         modifier = (if (compactScreen) Modifier.fillMaxWidth() else Modifier.width(220.dp))
             .clip(RoundedCornerShape(16.dp))

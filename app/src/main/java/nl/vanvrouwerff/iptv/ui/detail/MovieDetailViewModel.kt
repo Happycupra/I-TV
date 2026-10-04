@@ -24,6 +24,7 @@ import nl.vanvrouwerff.iptv.IptvApp
 import nl.vanvrouwerff.iptv.data.Channel
 import nl.vanvrouwerff.iptv.data.db.toDomain
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
 import nl.vanvrouwerff.iptv.data.tmdb.TmdbCatalogueMatcher
 import nl.vanvrouwerff.iptv.data.tmdb.TmdbMovieDetailsRepository
@@ -144,7 +145,7 @@ class MovieDetailViewModel : ViewModel() {
         // must work without it. Silently drop failures.
         val config = settings.sourceConfig.first() as? SourceConfig.Xtream ?: return
         val vodId = channel.id.removePrefix("xt-vod:").ifBlank { return }
-        runCatching {
+        runCatchingCancellable {
             withContext(Dispatchers.IO) {
                 val api = HttpClient.retrofitFor(config.host).create(XtreamApi::class.java)
                 api.getVodInfo(config.username, config.password, vodId = vodId)
@@ -187,7 +188,7 @@ class MovieDetailViewModel : ViewModel() {
 
         Log.i(TAG, "fetchTmdbDetails name=\"${channel.name}\" normalised=\"$titleForSearch\" year=$year id=${channel.id}")
 
-        val bundle = runCatching {
+        val bundle = runCatchingCancellable {
             app.tmdbMovieDetails.lookupMovie(
                 channelId = channel.id,
                 title = titleForSearch,

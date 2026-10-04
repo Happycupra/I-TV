@@ -16,6 +16,7 @@ import nl.vanvrouwerff.iptv.data.settings.SourceTestResult
 import nl.vanvrouwerff.iptv.data.settings.PhoneSetupServer
 import nl.vanvrouwerff.iptv.IptvApp
 import nl.vanvrouwerff.iptv.R
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
 import nl.vanvrouwerff.iptv.data.settings.XtreamUrlParser
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -36,6 +37,9 @@ data class SettingsUiState(
     val validationError: String? = null,
     val refreshing: Boolean = false,
     val refreshError: String? = null,
+    val epgRefreshing: Boolean = false,
+    val lastEpgRefreshAt: Long = 0L,
+    val epgError: String? = null,
     val maintenanceRunning: Boolean = false,
     val maintenanceMessage: String? = null,
     val autoRefreshEnabled: Boolean = false,
@@ -110,6 +114,15 @@ class SettingsViewModel : ViewModel() {
             .launchIn(viewModelScope)
         app.refreshUseCase.lastError
             .onEach { e -> _state.update { it.copy(refreshError = e) } }
+            .launchIn(viewModelScope)
+        app.refreshUseCase.refreshingEpg
+            .onEach { r -> _state.update { it.copy(epgRefreshing = r) } }
+            .launchIn(viewModelScope)
+        app.refreshUseCase.lastEpgError
+            .onEach { e -> _state.update { it.copy(epgError = e) } }
+            .launchIn(viewModelScope)
+        app.settings.lastEpgRefreshAt
+            .onEach { timestamp -> _state.update { it.copy(lastEpgRefreshAt = timestamp) } }
             .launchIn(viewModelScope)
     }
 
@@ -237,17 +250,17 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun save(onDone: () -> Unit) {
+        if (_state.value.saving) return
         val s = _state.value
         val newSource: SourceConfig = buildSource() ?: return
+        _state.update { it.copy(saving = true, validationError = null) }
         viewModelScope.launch {
-            _state.update { it.copy(saving = true, validationError = null) }
-            when (newSource) {
-                is SourceConfig.M3u -> app.settings.saveM3u(newSource.url)
-                is SourceConfig.Xtream ->
-                    app.settings.saveXtream(newSource.host, newSource.username, newSource.password)
+            val saved = runCatchingCancellable { app.settings.saveSource(newSource, s.categoryFilter) }
+            if (saved.isFailure) {
+                _state.update { it.copy(saving = false, validationError = app.getString(R.string.settings_save_failed)) }
+                return@launch
             }
             val filterChanged = s.categoryFilter.trim() != initialCategoryFilter.trim()
-            if (filterChanged) app.settings.setCategoryFilter(s.categoryFilter)
             // A new source (or filter) makes the cached catalogue wrong; refresh right away
             // instead of waiting for the 6h staleness check on the home screen.
             if (newSource != initialSource || filterChanged) {
@@ -279,6 +292,11 @@ class SettingsViewModel : ViewModel() {
     fun refreshNow() {
         if (_state.value.refreshing) return
         app.appScope.launch { app.refreshUseCase() }
+    }
+
+    fun syncEpg() {
+        if (_state.value.epgRefreshing) return
+        app.appScope.launch { app.refreshUseCase.refreshEpg(force = true) }
     }
 
     /** Clear bounded HTTP/image caches without changing user data or the catalogue. */

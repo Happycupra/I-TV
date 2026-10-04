@@ -10,16 +10,20 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,6 +54,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,8 +77,12 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import nl.vanvrouwerff.iptv.ui.common.MinimumTouchTargetSize
 
-@OptIn(UnstableApi::class, ExperimentalTvMaterial3Api::class)
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     playerProvider: () -> ExoPlayer?,
@@ -458,10 +467,11 @@ private fun NextEpisodeOverlay(
     // Single focus target on the Play-now button. We request focus once when the overlay
     // mounts so pressing OK advances immediately without the user having to navigate.
     val focus = remember { FocusRequester() }
+    val compact = isCompactTouchLayout()
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Column(
         modifier = Modifier
-            .padding(horizontal = 48.dp, vertical = 48.dp)
+            .padding(horizontal = if (compact) 16.dp else 48.dp, vertical = if (compact) 16.dp else 48.dp)
             .width(360.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(IptvPalette.BackgroundDeep.copy(alpha = 0.92f))
@@ -493,7 +503,7 @@ private fun NextEpisodeOverlay(
             ),
         )
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onPlayNow,
                 modifier = Modifier.focusRequester(focus),
@@ -513,7 +523,7 @@ private fun NextEpisodeOverlay(
     }
 }
 
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 private fun aspectResizeMode(mode: AspectMode): Int = when (mode) {
     AspectMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     AspectMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
@@ -700,7 +710,8 @@ private fun StatsLine(text: String) {
     )
 }
 
-@OptIn(UnstableApi::class, ExperimentalTvMaterial3Api::class)
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TracksOverlay(
     snapshot: TracksSnapshot,
@@ -712,6 +723,7 @@ private fun TracksOverlay(
     onChangeSubtitleDelay: (Long) -> Unit,
 ) {
     val firstChipFocus = remember { FocusRequester() }
+    val compact = isCompactTouchLayout()
     LaunchedEffect(Unit) {
         // Pull focus into the panel as soon as it appears; without this DPAD events
         // never reach the subtitle / audio rows — they fall through to the Activity.
@@ -719,12 +731,14 @@ private fun TracksOverlay(
     }
     Column(
         modifier = Modifier
-            .padding(horizontal = 32.dp, vertical = 32.dp)
+            .padding(horizontal = if (compact) 8.dp else 32.dp, vertical = if (compact) 8.dp else 32.dp)
             .width(360.dp)
             .fillMaxHeight()
             .clip(RoundedCornerShape(18.dp))
             .background(IptvPalette.BackgroundDeep.copy(alpha = 0.92f))
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+            // Fixed-height track lists remain bounded inside this scrollable panel.
     ) {
         // Aspect ratio quick-toggle — top block because it's the one control users hit most.
         Text(
@@ -889,6 +903,17 @@ private fun SubtitleDelaySlider(
     var focused by remember { mutableStateOf(false) }
     val clamped = valueMs.coerceIn(0L, maxMs)
     val fraction = clamped.toFloat() / maxMs.toFloat()
+    if (!LocalContext.current.isTelevision()) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.player_subtitle_delay) + " · " + formatDelayMs(clamped))
+            androidx.compose.material3.Slider(
+                value = fraction,
+                onValueChange = { onChange(((it * maxMs).toLong() / stepMs) * stepMs) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTargetSize),
+            )
+        }
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1057,7 +1082,7 @@ private fun AspectChip(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ErrorOverlay(
+internal fun ErrorOverlay(
     state: ErrorState,
     onRetry: () -> Unit,
     onSkip: () -> Unit,
@@ -1078,7 +1103,10 @@ private fun ErrorOverlay(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
                 text = stringResource(R.string.player_error_title),
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -1097,7 +1125,10 @@ private fun ErrorOverlay(
                 style = MaterialTheme.typography.bodySmall.copy(color = IptvPalette.TextTertiary),
             )
             Spacer(Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(onClick = onRetry, modifier = Modifier.focusRequester(retryFocus)) {
                     Text(
                         stringResource(R.string.player_error_retry),

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package nl.vanvrouwerff.iptv.ui.guide
 
 import nl.vanvrouwerff.iptv.data.DisplayNames
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +46,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import nl.vanvrouwerff.iptv.ui.common.TouchButton
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -55,7 +63,7 @@ import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
 import nl.vanvrouwerff.iptv.ui.theme.tvFocus
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Programme guide: live channels down, 3.5 hours across. Opens on the favourites; the chip
@@ -71,7 +79,16 @@ fun GuideScreen(
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(Unit) { vm.playRequests.collect { onPlayItem(it) } }
     val state by vm.state.collectAsState()
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(30_000L)
+        }
+    }
+    val compactScreen = isCompactTouchLayout()
+    val touchDevice = !LocalContext.current.isTelevision()
+    val locale = LocalConfiguration.current.locales[0]
     BackHandler(enabled = true, onBack = onBack)
 
     Box(modifier = Modifier.fillMaxSize().background(IptvPalette.BackgroundDeep)) {
@@ -83,29 +100,33 @@ fun GuideScreen(
                     vertical = if (compactScreen) 12.dp else 20.dp,
                 ),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
                     text = stringResource(R.string.guide_title),
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = IptvPalette.TextPrimary,
-                    ),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = IptvPalette.TextPrimary,
                 )
                 if (!state.loading && state.fromMs > 0L) {
-                    Spacer(Modifier.width(20.dp))
-                    Text(
-                        text = dayLabel(state.fromMs),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = IptvPalette.TextSecondary,
-                    )
-                    Spacer(Modifier.weight(1f))
+                    Text(dayLabel(state.fromMs), style = MaterialTheme.typography.titleMedium, color = IptvPalette.TextSecondary)
                     TimeButton(stringResource(R.string.guide_earlier)) { vm.shiftWindow(-GuideViewModel.STEP_MS) }
-                    Spacer(Modifier.width(8.dp))
                     TimeButton(stringResource(R.string.guide_now)) { vm.goToNow() }
-                    Spacer(Modifier.width(8.dp))
                     TimeButton(stringResource(R.string.guide_later)) { vm.shiftWindow(GuideViewModel.STEP_MS) }
                 }
+                TouchButton(onClick = vm::syncEpg, enabled = !state.epgRefreshing) {
+                    Text(stringResource(if (state.epgRefreshing) R.string.guide_epg_syncing else R.string.guide_epg_sync))
+                }
             }
+            Text(
+                text = state.epgError ?: if (state.lastEpgRefreshAt > 0L) {
+                    stringResource(R.string.guide_epg_updated, SimpleDateFormat("dd.MM. HH:mm", locale).format(Date(state.lastEpgRefreshAt)))
+                } else stringResource(R.string.guide_epg_never_synced),
+                color = if (state.epgError != null) IptvPalette.Accent else IptvPalette.TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 6.dp),
+            )
             Spacer(Modifier.height(10.dp))
             if (state.loading) {
                 Text(stringResource(R.string.detail_loading), color = IptvPalette.TextSecondary)
@@ -128,14 +149,26 @@ fun GuideScreen(
             }
             Spacer(Modifier.height(10.dp))
             val group = state.group ?: return@Column
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            if (touchDevice) {
+                MobileGuideList(
+                    channels = group.channels,
+                    programmesByKey = state.programmesByKey,
+                    numberById = state.numberById,
+                    fromMs = state.fromMs,
+                    toMs = state.toMs,
+                    now = now,
+                    reminderKeys = state.reminderKeys,
+                    onPlay = { onPlay(it, group.channels) },
+                    onPast = vm::openPast,
+                    onFuture = vm::toggleReminder,
+                )
+            } else BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val timelineWidth = maxWidth - CHANNEL_CELL_WIDTH
                 val window = (state.toMs - state.fromMs).coerceAtLeast(1L)
                 fun x(ms: Long): Dp = timelineWidth * ((ms - state.fromMs).toFloat() / window)
                 Column {
                     TimeRuler(fromMs = state.fromMs, toMs = state.toMs, x = ::x)
                     Spacer(Modifier.height(6.dp))
-                    val now = System.currentTimeMillis()
                     val firstFocus = remember(state.groupIndex) { FocusRequester() }
                     LaunchedEffect(state.groupIndex, state.programmesByKey.isNotEmpty()) {
                         androidx.compose.runtime.withFrameNanos { }
@@ -166,7 +199,7 @@ fun GuideScreen(
                     }
                 }
                 // "Now" marker across the grid.
-                val nowX = x(System.currentTimeMillis())
+                val nowX = x(now)
                 if (nowX > 0.dp && nowX < timelineWidth) {
                     Box(
                         modifier = Modifier
@@ -195,15 +228,16 @@ fun GuideScreen(
 
 @Composable
 private fun dayLabel(ms: Long): String {
+    val locale = LocalConfiguration.current.locales[0]
     val zone = java.time.ZoneId.systemDefault()
     val day = java.time.Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
     val today = java.time.LocalDate.now(zone)
-    val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+    val time = SimpleDateFormat("HH:mm", locale).format(Date(ms))
     val name = when (day) {
         today -> stringResource(R.string.guide_today)
         today.minusDays(1) -> stringResource(R.string.guide_yesterday)
         today.plusDays(1) -> stringResource(R.string.guide_tomorrow)
-        else -> SimpleDateFormat("EEEE d MMMM", Locale.forLanguageTag("de-CH")).format(Date(ms))
+        else -> SimpleDateFormat("EEEE d MMMM", locale).format(Date(ms))
     }
     return "$name · $time"
 }
@@ -238,7 +272,8 @@ private fun TimeButton(label: String, onClick: () -> Unit) {
 
 @Composable
 private fun TimeRuler(fromMs: Long, toMs: Long, x: (Long) -> Dp) {
-    val fmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val locale = LocalConfiguration.current.locales[0]
+    val fmt = remember(locale) { SimpleDateFormat("HH:mm", locale) }
     Box(modifier = Modifier.fillMaxWidth().height(20.dp)) {
         var t = fromMs
         while (t < toMs) {
@@ -313,9 +348,10 @@ private fun GuideRow(
                             .width((x(end) - x(start) - 2.dp).coerceAtLeast(8.dp))
                             .then(if (takesFirstFocus) Modifier.focusRequester(firstFocus!!) else Modifier),
                         onClick = {
+                            val clickTime = System.currentTimeMillis()
                             when {
-                                live -> onPlay()
-                                past -> onPast(p)
+                                p.startMs <= clickTime && p.stopMs > clickTime -> onPlay()
+                                p.stopMs <= clickTime -> onPast(p)
                                 else -> onFuture(p)
                             }
                         },
@@ -334,6 +370,7 @@ private fun GuideCell(
     modifier: Modifier,
     onClick: () -> Unit,
     dimmed: Boolean = false,
+    maxLines: Int = 2,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(6.dp)
@@ -359,10 +396,77 @@ private fun GuideCell(
         Text(
             text = title,
             style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
         )
+    }
+}
+
+/** Phone guide: channel names remain visible and programmes have readable, scrollable cards. */
+@Composable
+private fun MobileGuideList(
+    channels: List<Channel>,
+    programmesByKey: Map<String, List<ProgrammeEntity>>,
+    numberById: Map<String, Int>,
+    fromMs: Long,
+    toMs: Long,
+    now: Long,
+    reminderKeys: Set<String>,
+    onPlay: (Channel) -> Unit,
+    onPast: (Channel, ProgrammeEntity) -> Unit,
+    onFuture: (Channel, ProgrammeEntity) -> Unit,
+) {
+    val locale = LocalConfiguration.current.locales[0]
+    val time = remember(locale) { SimpleDateFormat("HH:mm", locale) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 32.dp),
+    ) {
+        items(channels, key = { it.id }) { channel ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                TouchButton(onClick = { onPlay(channel) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        listOfNotNull(numberById[channel.id]?.let { "%03d".format(it) }, DisplayNames.clean(channel.name)).joinToString("  "),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                val visible = remember(programmesByKey, channel.epgChannelId, fromMs, toMs) {
+                    channel.epgChannelId?.let { programmesByKey[it] }.orEmpty().filter { it.stopMs > fromMs && it.startMs < toMs }
+                }
+                if (visible.isEmpty()) {
+                    GuideCell(stringResource(R.string.guide_no_data), false, Modifier.fillMaxWidth().height(64.dp), { onPlay(channel) })
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(visible, key = { it.startMs }) { programme ->
+                            val live = programme.startMs <= now && programme.stopMs > now
+                            val past = programme.stopMs <= now
+                            val replayable = past && Catchup.isAvailable(channel, programme.startMs, programme.stopMs, now)
+                            val reminded = GuideViewModel.reminderKey(channel.id, programme.startMs) in reminderKeys
+                            val prefix = when { replayable -> "↺ "; reminded -> "🔔 "; else -> "" }
+                            GuideCell(
+                                title = "${time.format(Date(programme.startMs))} – ${time.format(Date(programme.stopMs))}\n$prefix${programme.title}",
+                                live = live,
+                                dimmed = past && !replayable,
+                                modifier = Modifier.width(240.dp).height(88.dp),
+                                maxLines = 3,
+                                onClick = {
+                                    val clickTime = System.currentTimeMillis()
+                                    when {
+                                        programme.startMs <= clickTime && programme.stopMs > clickTime -> onPlay(channel)
+                                        programme.stopMs <= clickTime -> onPast(channel, programme)
+                                        else -> onFuture(channel, programme)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
