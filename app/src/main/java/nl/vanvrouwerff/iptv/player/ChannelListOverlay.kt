@@ -70,15 +70,18 @@ fun ChannelListOverlay(
     channelNumberOf: (String) -> Int?,
     onSelectGroup: (Int) -> Unit,
     onZap: (ChannelGroup, Channel) -> Unit,
+    interactive: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val group = groups.getOrNull(groupIndex) ?: return
-    val startIndex = remember(groupIndex, groups) {
+    val previewChannelId = if (interactive) null else currentChannelId
+    val startIndex = remember(groupIndex, groups, previewChannelId) {
         group.channels.indexOfFirst { it.id == currentChannelId }.coerceAtLeast(0)
     }
-    val listState = remember(groupIndex, groups) { LazyListState(startIndex, 0) }
+    val listState = remember(groupIndex, groups, previewChannelId) { LazyListState(startIndex, 0) }
     val focusTarget = remember(groupIndex, groups) { FocusRequester() }
-    LaunchedEffect(groupIndex, groups) {
+    LaunchedEffect(groupIndex, groups, interactive) {
+        if (!interactive) return@LaunchedEffect
         androidx.compose.runtime.withFrameNanos { }
         runCatching { focusTarget.requestFocus() }
     }
@@ -90,6 +93,7 @@ fun ChannelListOverlay(
             .background(IptvPalette.BackgroundDeep.copy(alpha = 0.92f))
             .padding(horizontal = 20.dp, vertical = 24.dp)
             .onPreviewKeyEvent { event ->
+                if (!interactive) return@onPreviewKeyEvent false
                 if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                 when (event.nativeKeyEvent.keyCode) {
                     android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -146,12 +150,13 @@ fun ChannelListOverlay(
                     playing = ch.id == currentChannelId,
                     modifier = if (index == startIndex) Modifier.focusRequester(focusTarget) else Modifier,
                     onClick = { onZap(group, ch) },
+                    enabled = interactive,
                 )
             }
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            text = stringResource(R.string.channel_list_hint),
+            text = stringResource(if (interactive) R.string.channel_list_hint else R.string.channel_list_preview_hint),
             style = MaterialTheme.typography.labelSmall,
             color = IptvPalette.TextSecondary,
         )
@@ -167,17 +172,21 @@ private fun ChannelListItem(
     playing: Boolean,
     modifier: Modifier,
     onClick: () -> Unit,
+    enabled: Boolean,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(10.dp)
     Surface(
         onClick = onClick,
+        enabled = enabled,
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (playing) IptvPalette.AccentDeep.copy(alpha = 0.55f) else Color.Transparent,
             contentColor = IptvPalette.TextPrimary,
             focusedContainerColor = FocusStyle.Fill,
             focusedContentColor = IptvPalette.TextPrimary,
+            disabledContainerColor = if (playing) IptvPalette.AccentDeep.copy(alpha = 0.55f) else Color.Transparent,
+            disabledContentColor = IptvPalette.TextPrimary,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         modifier = modifier

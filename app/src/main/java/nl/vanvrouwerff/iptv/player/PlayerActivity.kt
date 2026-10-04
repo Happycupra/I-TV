@@ -15,6 +15,7 @@ import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
@@ -33,6 +34,7 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -58,6 +60,7 @@ import nl.vanvrouwerff.iptv.data.db.WatchProgressEntity
 import nl.vanvrouwerff.iptv.data.db.WatchedEpisodeEntity
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
 import nl.vanvrouwerff.iptv.data.db.toDomain
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 import nl.vanvrouwerff.iptv.ui.theme.IptvTheme
 import nl.vanvrouwerff.iptv.ui.common.isTelevision
 
@@ -127,14 +130,7 @@ class PlayerActivity : ComponentActivity() {
      */
     private var nextEpisodeCancelled = false
 
-    /**
-     * Transient-error retry counter. IPTV streams routinely hiccup (SSL handshake stalls,
-     * ghost DNS failures, upstream blips); a silent retry after a beat recovers most of
-     * them without the user ever seeing the error overlay. Reset on a successful play
-     * and on channel change so genuinely-dead streams still pop the overlay on the next
-     * hit rather than silently looping.
-     */
-    private var autoRetryCount = 0
+    private val retryPolicy = PlaybackRetryPolicy()
 
     private var channelsLoaded = false
     private var pendingResumeMs = 0L
@@ -150,12 +146,13 @@ class PlayerActivity : ComponentActivity() {
     private var numberedChannels: List<Channel> = emptyList()
     private var numberById: Map<String, Int> = emptyMap()
     private var channelGroups by mutableStateOf<List<ChannelGroup>>(emptyList())
-    private var channelListVisible by mutableStateOf(false)
+    private val channelListPresentation by lazy { ChannelListPresentation(lifecycleScope) }
     private var channelGroupIndex by mutableStateOf(0)
     private var channelListNow by mutableStateOf<Map<String, NowInfo>>(emptyMap())
     private var liveIndexJob: Job? = null
     private var channelListNowJob: Job? = null
-    private var openListWhenReady = false
+    private var channelListNowGroup: ChannelGroup? = null
+    private var channelListNowLoadedAtMs = 0L
 
     /** Series context for ad-hoc episode queues, so auto-advanced episodes land in "Verder kijken". */
     private class SeriesMeta(
@@ -180,6 +177,7 @@ class PlayerActivity : ComponentActivity() {
         if (intent.getStringExtra(EXTRA_CHANNEL_ID) == null) { finish(); return }
 
         setContent {
+            val channelListMode by channelListPresentation.mode.collectAsState()
             IptvTheme {
                 androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
                     PlayerScreen(
@@ -232,13 +230,14 @@ class PlayerActivity : ComponentActivity() {
                         nextEpisode = nextEpisodeInfo,
                         isSeriesEpisode = currentChannelType == ContentType.SERIES,
                         currentItemId = currentItemId,
-                        channelList = if (channelListVisible && channelGroups.isNotEmpty()) {
+                        channelList = if (channelListMode != ChannelListMode.HIDDEN && channelGroups.isNotEmpty()) {
                             ChannelListUi(
                                 groups = channelGroups,
                                 groupIndex = channelGroupIndex.coerceIn(0, channelGroups.lastIndex),
                                 currentChannelId = currentItemId,
                                 nowByChannelId = channelListNow,
                                 channelNumberOf = { numberById[it] },
+                                isPreview = channelListMode == ChannelListMode.PREVIEW,
                             )
                         } else null,
                         onSelectChannelGroup = ::selectChannelGroup,
@@ -248,7 +247,10 @@ class PlayerActivity : ComponentActivity() {
                         onSelectAudio = ::applyAudioSelection,
                         onSelectSubtitle = ::applySubtitleSelection,
                         onChangeSubtitleDelay = ::setSubtitleDelay,
-                        onRetryStream = ::retryCurrent,
+                        onRetryStream = {
+                            retryPolicy.reset()
+                            retryCurrent()
+                        },
                         onSkipError = {
                             errorOverlay = null
                             channelStep(+1)
@@ -311,7 +313,9 @@ class PlayerActivity : ComponentActivity() {
         numberById = emptyMap()
         channelGroups = emptyList()
         channelListNow = emptyMap()
-        openListWhenReady = false
+        channelListNowGroup = null
+        channelListNowLoadedAtMs = 0L
+        channelListPresentation.close()
         loadJob?.cancel()
         loadJob = lifecycleScope.launch {
             val loaded = when {
@@ -452,10 +456,6 @@ class PlayerActivity : ComponentActivity() {
                 when (state) {
                     Player.STATE_READY -> {
                         measureFrameRate()
-                        // Stream is actually playing — any past transient errors are
-                        // water under the bridge, reset so the next real error gets the
-                        // full single-retry budget.
-                        autoRetryCount = 0
                     }
                     Player.STATE_ENDED -> {
                         val channel = channels.getOrNull(currentIndex) ?: return
@@ -476,6 +476,11 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
 
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (player !== p) return
+                retryPolicy.onPlayingChanged(isPlaying, android.os.SystemClock.elapsedRealtime())
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 if (player !== p) return
                 val channel = channels.getOrNull(currentIndex)
@@ -487,19 +492,20 @@ class PlayerActivity : ComponentActivity() {
                     }
                     return
                 }
-                val isTransient = code in
-                    PlaybackException.ERROR_CODE_IO_UNSPECIFIED..
-                    PlaybackException.ERROR_CODE_IO_NO_PERMISSION
-                if (isTransient && autoRetryCount < MAX_AUTO_RETRY) {
-                    autoRetryCount++
-                    Log.i(TAG, "transient IO error (${error.errorCodeName}); auto-retry $autoRetryCount")
-                    autoRetryJob?.cancel()
+                autoRetryJob?.cancel()
+                val httpStatus = generateSequence<Throwable>(error) { it.cause }
+                    .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                    .firstOrNull()?.responseCode
+                val retryDelayMs = retryPolicy.nextDelayMs(
+                    code, httpStatus, android.os.SystemClock.elapsedRealtime(),
+                )
+                if (retryDelayMs != null) {
+                    Log.i(TAG, "transient IO error (${error.errorCodeName}); retry in ${retryDelayMs}ms")
                     autoRetryJob = lifecycleScope.launch {
-                        val retryDelayMs = AUTO_RETRY_DELAYS_MS.getOrElse(autoRetryCount - 1) { AUTO_RETRY_DELAYS_MS.last() }
                         delay(retryDelayMs)
                         // Channel might have changed during the wait (user hit CH+/-): skip
                         // the retry in that case, the new channel's own prepare() is running.
-                        if (channels.getOrNull(currentIndex)?.id == channel?.id) retryCurrent()
+                        if (player === p && playingChannel?.id == channel?.id) retryCurrent()
                     }
                     return
                 }
@@ -639,6 +645,7 @@ class PlayerActivity : ComponentActivity() {
         val channel = channels.getOrNull(index) ?: return
         val url = channel.streamUrl ?: return
         saveCurrentProgress()
+        val previousId = playingChannel?.id
         playingChannel?.let { if (it.id != channel.id && !Catchup.isCatchupId(it.id)) previousChannel = it }
         playingChannel = channel
         if (!Catchup.isCatchupId(channel.id)) liveReturn = null
@@ -649,7 +656,7 @@ class PlayerActivity : ComponentActivity() {
         errorOverlay = null
         // Channel change resets the auto-retry budget: a dead stream on the previous
         // channel must not consume the budget for this new stream.
-        autoRetryCount = 0
+        retryPolicy.reset()
         autoRetryJob?.cancel()
         // Reset the next-episode overlay state so a fresh episode starts the countdown
         // from scratch — without this, a user who dismissed the overlay on episode 3
@@ -694,6 +701,9 @@ class PlayerActivity : ComponentActivity() {
                 )
             }
         }
+        if (channel.type == ContentType.TV && previousId != null && previousId != channel.id) {
+            showChannelList(preview = true)
+        }
     }
 
     private fun loadLiveProgramme(channel: Channel) {
@@ -702,7 +712,9 @@ class PlayerActivity : ComponentActivity() {
         val key = channel.epgChannelId
         if (channel.type != ContentType.TV || channel.archiveDays <= 0 || key.isNullOrBlank()) return
         liveProgrammeJob = lifecycleScope.launch {
-            val p = withContext(Dispatchers.IO) { dao.getNowPlayingFor(key, System.currentTimeMillis()) }
+            val p = runCatchingCancellable {
+                withContext(Dispatchers.IO) { dao.getNowPlayingFor(key, System.currentTimeMillis()) }
+            }.onFailure { Log.w(TAG, "Could not load optional current programme", it) }.getOrNull()
             if (playingChannel?.id == channel.id) liveProgramme = p
         }
     }
@@ -916,14 +928,20 @@ class PlayerActivity : ComponentActivity() {
     private fun loadLiveIndex() {
         if (liveIndexJob?.isActive == true || numberedChannels.isNotEmpty()) return
         liveIndexJob = lifecycleScope.launch {
-            val index = withContext(Dispatchers.IO) {
-                nl.vanvrouwerff.iptv.data.live.LiveChannelIndex.load(
-                    dao = dao,
-                    profileId = IptvApp.get().activeProfileId.value,
-                    favoritesLabel = getString(R.string.channel_list_favorites),
-                    uncategorizedLabel = getString(R.string.channel_list_uncategorized),
-                    hideAdult = IptvApp.get().kidsMode.value,
-                )
+            val index = runCatchingCancellable {
+                withContext(Dispatchers.IO) {
+                    nl.vanvrouwerff.iptv.data.live.LiveChannelIndex.load(
+                        dao = dao,
+                        profileId = IptvApp.get().activeProfileId.value,
+                        favoritesLabel = getString(R.string.channel_list_favorites),
+                        uncategorizedLabel = getString(R.string.channel_list_uncategorized),
+                        hideAdult = IptvApp.get().kidsMode.value,
+                    )
+                }
+            }.getOrElse { error ->
+                Log.w(TAG, "Could not load optional channel list", error)
+                channelListPresentation.close()
+                return@launch
             }
             val built = Triple(
                 index.numbered,
@@ -936,19 +954,27 @@ class PlayerActivity : ComponentActivity() {
             channels.getOrNull(currentIndex)?.let { current ->
                 if (bannerChannel?.id == current.id) bannerChannelNumber = numberById[current.id]
             }
-            if (openListWhenReady) {
-                openListWhenReady = false
-                openChannelList()
+            if (channelListPresentation.mode.value != ChannelListMode.HIDDEN) {
+                positionChannelList()
             }
         }
     }
 
     private fun openChannelList() {
+        showChannelList(preview = false)
+    }
+
+    private fun showChannelList(preview: Boolean) {
+        if (preview && channelListPresentation.mode.value == ChannelListMode.BROWSING) return
+        if (preview) channelListPresentation.preview() else channelListPresentation.browse()
         if (channelGroups.isEmpty()) {
-            openListWhenReady = true
             loadLiveIndex()
             return
         }
+        positionChannelList()
+    }
+
+    private fun positionChannelList() {
         val current = channels.getOrNull(currentIndex)
         val byTitle = channelGroups.indexOfFirst { g -> g.title == current?.groupTitle }
         val containing = channelGroups.indexOfFirst { g -> g.channels.any { it.id == current?.id } }
@@ -963,7 +989,6 @@ class PlayerActivity : ComponentActivity() {
         tracksOverlayVisible = false
         statsOverlayVisible = false
         bannerChannel = null
-        channelListVisible = true
         refreshChannelListNow()
     }
 
@@ -974,9 +999,16 @@ class PlayerActivity : ComponentActivity() {
 
     private fun refreshChannelListNow() {
         val group = channelGroups.getOrNull(channelGroupIndex) ?: return
+        val elapsed = android.os.SystemClock.elapsedRealtime()
+        if (channelListNowGroup === group &&
+            (channelListNowJob?.isActive == true ||
+                (channelListNowLoadedAtMs > 0 && elapsed - channelListNowLoadedAtMs < CHANNEL_LIST_EPG_CACHE_MS))) return
         channelListNowJob?.cancel()
+        channelListNowGroup = group
+        channelListNowLoadedAtMs = 0L
+        channelListNow = emptyMap()
         channelListNowJob = lifecycleScope.launch {
-            channelListNow = withContext(Dispatchers.Default) {
+            channelListNow = runCatchingCancellable { withContext(Dispatchers.Default) {
                 val now = System.currentTimeMillis()
                 val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
                 val programmes = keys.chunked(500)
@@ -987,7 +1019,9 @@ class PlayerActivity : ComponentActivity() {
                     val span = (p.stopMs - p.startMs).coerceAtLeast(1L)
                     ch.id to NowInfo(p.title, (now - p.startMs).toFloat() / span)
                 }.toMap()
-            }
+            } }.onFailure { Log.w(TAG, "Could not load optional channel-list EPG", it) }
+                .getOrDefault(emptyMap())
+            channelListNowLoadedAtMs = android.os.SystemClock.elapsedRealtime()
         }
     }
 
@@ -1015,13 +1049,16 @@ class PlayerActivity : ComponentActivity() {
         bannerJob = lifecycleScope.launch {
             if (!epgKey.isNullOrBlank()) {
                 val now = System.currentTimeMillis()
-                val nowProgramme = withContext(Dispatchers.IO) { dao.getNowPlayingFor(epgKey, now) }
-                val nextProgramme = withContext(Dispatchers.IO) { dao.getNextProgrammeFor(epgKey, now) }
+                val programmes = runCatchingCancellable {
+                    withContext(Dispatchers.IO) {
+                        dao.getNowPlayingFor(epgKey, now) to dao.getNextProgrammeFor(epgKey, now)
+                    }
+                }.onFailure { Log.w(TAG, "Could not load optional banner EPG", it) }.getOrNull()
                 // Only push the update if the banner is still showing the same channel —
                 // otherwise a rapid CH+/CH- could stamp stale data on the new channel.
                 if (bannerChannel?.id == ch.id) {
-                    bannerNowPlaying = nowProgramme?.title
-                    bannerNext = nextProgramme?.title
+                    bannerNowPlaying = programmes?.first?.title
+                    bannerNext = programmes?.second?.title
                 }
             }
             delay(BANNER_MS)
@@ -1117,7 +1154,7 @@ class PlayerActivity : ComponentActivity() {
         }
         val digit = keyCode - KeyEvent.KEYCODE_0
         if (digit in 0..9) {
-            channelListVisible = false
+            channelListPresentation.close()
             tracksOverlayVisible = false
             statsOverlayVisible = false
             errorOverlay = null
@@ -1139,13 +1176,14 @@ class PlayerActivity : ComponentActivity() {
                 -> return true
             }
         }
-        if (channelListVisible) {
+        if (channelListPresentation.mode.value != ChannelListMode.HIDDEN &&
+            (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE)) {
+            channelListPresentation.close()
+            playerViewRef?.requestFocus()
+            return true
+        }
+        if (channelListPresentation.mode.value == ChannelListMode.BROWSING) {
             when (keyCode) {
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    channelListVisible = false
-                    playerViewRef?.requestFocus()
-                    return true
-                }
                 KeyEvent.KEYCODE_DPAD_UP,
                 KeyEvent.KEYCODE_DPAD_DOWN,
                 KeyEvent.KEYCODE_DPAD_LEFT,
@@ -1288,7 +1326,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showControls() {
-        channelListVisible = false
+        channelListPresentation.close()
         controlsFocusToken++
         controlsVisible = true
         bumpControlsTimer()
@@ -1429,8 +1467,7 @@ class PlayerActivity : ComponentActivity() {
         controlsVisible = false
         tracksOverlayVisible = false
         statsOverlayVisible = false
-        channelListVisible = false
-        openListWhenReady = false
+        channelListPresentation.close()
         numericInput = ""
         bannerChannel = null
         bannerNowPlaying = null
@@ -1474,12 +1511,10 @@ class PlayerActivity : ComponentActivity() {
         /** How long the channel-info banner stays on screen after a zap. */
         private const val CONTROLS_TIMEOUT_MS = 5_000L
         private const val BANNER_MS = 3_200L
+        private const val CHANNEL_LIST_EPG_CACHE_MS = 30_000L
         /** Idle time before a partially-typed channel number auto-commits. */
         private const val NUMERIC_COMMIT_MS = 1_500L
         private const val MAX_SUBTITLE_DELAY_MS = 10_000L
-        /** Silent-retry budget for transient IO errors before showing the overlay. */
-        private const val MAX_AUTO_RETRY = 3
-        private val AUTO_RETRY_DELAYS_MS = longArrayOf(1_500L, 4_000L, 9_000L)
         /** Remaining-playback threshold that triggers the "Volgende aflevering"-overlay. */
         const val NEXT_EPISODE_WINDOW_MS: Long = 15_000L
         private const val TAG = "PlayerActivity"

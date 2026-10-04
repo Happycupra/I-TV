@@ -47,7 +47,7 @@ class PlaylistRefreshUseCase(
         try {
             _refreshing.value = true
             _lastError.value = null
-            val result = withContext(Dispatchers.IO) { runCatching { refresh(force, onCatalogueReady) } }
+            val result = withContext(Dispatchers.IO) { runCatchingCancellable { refresh(force, onCatalogueReady) } }
             result.exceptionOrNull()?.let { err ->
                 val safe = safeError(err)
                 Log.w(TAG, "Refresh failed; known-good catalogue retained where possible", err)
@@ -66,8 +66,8 @@ class PlaylistRefreshUseCase(
         if (mutex.isLocked || !epgMutex.tryLock()) return Result.success(Unit)
         return try {
             withContext(Dispatchers.IO) {
-                runCatching {
-                    val config = settings.sourceConfig.first() ?: return@runCatching
+                runCatchingCancellable {
+                    val config = settings.sourceConfig.first() ?: return@runCatchingCancellable
                     val filter = settings.categoryFilter.first()
                     writeEpg(repository(config, filter))
                 }.onFailure { Log.w(TAG, "EPG refresh failed; existing EPG retained", it) }
@@ -150,7 +150,7 @@ class PlaylistRefreshUseCase(
             settings.markRefreshSuccess()
             settings.markProviderRecovered()
             signalReady()
-            epgMutex.withLock { runCatching { writeEpg(repo) } }
+            epgMutex.withLock { runCatchingCancellable { writeEpg(repo) } }
             return
         }
 

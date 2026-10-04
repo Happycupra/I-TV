@@ -66,7 +66,7 @@ class XtreamPlaylistRepository(
         onSectionReady(PlaylistSectionResult(ContentType.TV, live))
 
         var vodError: String? = null
-        val vod = runCatching {
+        val vod = runCatchingCancellable {
             retryProviderCall("Xtream VOD") {
                 val cats = api.getVodCategories(username, password)
                 val streams = api.getVodStreamsStream(username, password)
@@ -89,7 +89,7 @@ class XtreamPlaylistRepository(
         )
 
         var seriesError: String? = null
-        val series = runCatching {
+        val series = runCatchingCancellable {
             retryProviderCall("Xtream Series") {
                 val cats = api.getSeriesCategories(username, password)
                 val list = api.getSeriesStream(username, password)
@@ -112,7 +112,7 @@ class XtreamPlaylistRepository(
         )
 
         val keptEpgIds = live.mapNotNullTo(HashSet()) { it.epgChannelId }
-        val programmes: List<ProgrammeEntity> = runCatching {
+        val programmes: List<ProgrammeEntity> = runCatchingCancellable {
             retryProviderCall("Xtream EPG", longArrayOf(1_500L)) {
                 api.getXmltv(username, password).useStream { stream ->
                     XmltvParser.parse(stream) { key -> key in keptEpgIds }

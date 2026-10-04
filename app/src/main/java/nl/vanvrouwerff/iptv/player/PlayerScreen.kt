@@ -170,7 +170,7 @@ fun PlayerScreen(
                 // When a Compose overlay panel opens, release focus from the PlayerView so
                 // the panel's first focusable Surface can grab it — otherwise D-pad input
                 // keeps hitting the Activity's onKeyDown and never reaches the panel.
-                val panelOpen = tracksOverlayVisible || channelList != null || controls != null ||
+                val panelOpen = tracksOverlayVisible || channelList?.isPreview == false || controls != null ||
                     errorState != null || nextEpisode != null
                 view.isFocusable = !panelOpen
                 view.isFocusableInTouchMode = !panelOpen
@@ -289,6 +289,7 @@ fun PlayerScreen(
                     channelNumberOf = ui.channelNumberOf,
                     onSelectGroup = onSelectChannelGroup,
                     onZap = onZapFromList,
+                    interactive = !ui.isPreview,
                 )
             }
         }
@@ -1114,4 +1115,5 @@ data class ChannelListUi(
     val currentChannelId: String?,
     val nowByChannelId: Map<String, NowInfo>,
     val channelNumberOf: (String) -> Int?,
+    val isPreview: Boolean = false,
 )

@@ -255,6 +255,7 @@
     <string name="channel_list_uncategorized">Sonstige</string>
     <string name="channel_list_count">Liste %1$d von %2$d · %3$d Sender</string>
     <string name="channel_list_hint">◀▶ Kategorie · OK Umschalten · GELB Steuerung · ZURÜCK Schließen</string>
+    <string name="channel_list_preview_hint">OK Senderliste öffnen · ZURÜCK Schließen</string>
     <string name="guide_title">TV-Programm</string>
     <string name="guide_open">Programm</string>
     <string name="guide_no_data">Keine Programmdaten</string>
