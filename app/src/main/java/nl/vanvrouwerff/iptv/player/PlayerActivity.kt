@@ -64,7 +64,7 @@ import nl.vanvrouwerff.iptv.ui.common.isTelevision
 @OptIn(UnstableApi::class)
 class PlayerActivity : ComponentActivity() {
 
-    private var player: ExoPlayer? = null
+    @Volatile private var player: ExoPlayer? = null
     /**
      * Live ref to the embedded PlayerView. Stored so onKeyDown can forward D-pad events to
      * the built-in controller (seek, pause, subtitle button) that the user can't otherwise
@@ -307,6 +307,11 @@ class PlayerActivity : ComponentActivity() {
         }
 
         channelsLoaded = false
+        numberedChannels = emptyList()
+        numberById = emptyMap()
+        channelGroups = emptyList()
+        channelListNow = emptyMap()
+        openListWhenReady = false
         loadJob?.cancel()
         loadJob = lifecycleScope.launch {
             val loaded = when {
@@ -336,7 +341,6 @@ class PlayerActivity : ComponentActivity() {
             pendingResumeMs = resumeMs
             channelsLoaded = true
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) startPlayback()
-            if (loaded.getOrNull(currentIndex)?.type == ContentType.TV) loadLiveIndex()
         }
     }
 
@@ -367,6 +371,7 @@ class PlayerActivity : ComponentActivity() {
         pendingResumeMs = 0L
         initPlayer(resume)
         channels.getOrNull(currentIndex)?.let(::showBanner)
+        if (playingChannel?.type == ContentType.TV) loadLiveIndex()
     }
 
     private fun initPlayer(initialResumeMs: Long) {
@@ -412,8 +417,10 @@ class PlayerActivity : ComponentActivity() {
         p.volume = 1f
         applyPlayerPreferences(p)
         p.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+            if (player !== p) return@setVideoFrameMetadataListener
             frameRateProbe.add(presentationTimeUs)?.let { fps ->
                 runOnUiThread {
+                    if (player !== p) return@runOnUiThread
                     Log.i(TAG, "Measured frame rate: $fps fps")
                     matchDisplayToFrameRate(fps)
                 }
@@ -425,6 +432,7 @@ class PlayerActivity : ComponentActivity() {
                 format: Format,
                 decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
             ) {
+                if (player !== p) return
                 Log.i(TAG, "Video format ${format.width}x${format.height} @ ${format.frameRate} fps (${format.sampleMimeType})")
                 if (format.frameRate > 0f) matchDisplayToFrameRate(format.frameRate) else frameRateProbe.reset()
             }
@@ -434,11 +442,13 @@ class PlayerActivity : ComponentActivity() {
                 droppedFrames: Int,
                 elapsedMs: Long,
             ) {
+                if (player !== p) return
                 this@PlayerActivity.droppedFrames += droppedFrames
             }
         })
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (player !== p) return
                 when (state) {
                     Player.STATE_READY -> {
                         measureFrameRate()
@@ -467,6 +477,7 @@ class PlayerActivity : ComponentActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (player !== p) return
                 val channel = channels.getOrNull(currentIndex)
                 val code = error.errorCode
                 if (code == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
@@ -503,6 +514,7 @@ class PlayerActivity : ComponentActivity() {
             }
 
             override fun onCues(cueGroup: CueGroup) {
+                if (player !== p) return
                 if (subtitleDelayMs <= 0L) {
                     displayedCues = cueGroup.cues
                     return
@@ -514,6 +526,7 @@ class PlayerActivity : ComponentActivity() {
             }
 
             override fun onTracksChanged(tracks: Tracks) {
+                if (player !== p) return
                 tracksSnapshot = TracksSnapshot.from(tracks)
                 // Diagnostic: dump the audio track summary so we can see in logcat which
                 // codec / channel-count was picked (or skipped). Filter by tag `PlayerActivity`
@@ -802,7 +815,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun saveCurrentProgress() {
-        val channel = channels.getOrNull(currentIndex) ?: return
+        // The queue may already have been replaced by a zap or a return from catch-up.
+        // Position and duration still belong to the item currently attached to the player.
+        val channel = playingChannel ?: return
         if (channel.type == ContentType.TV || Catchup.isCatchupId(channel.id)) return
         val p = player ?: return
         val pos = p.currentPosition
@@ -961,16 +976,18 @@ class PlayerActivity : ComponentActivity() {
         val group = channelGroups.getOrNull(channelGroupIndex) ?: return
         channelListNowJob?.cancel()
         channelListNowJob = lifecycleScope.launch {
-            val now = System.currentTimeMillis()
-            val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
-            val programmes = withContext(Dispatchers.IO) {
-                keys.chunked(500).flatMap { dao.nowPlayingForKeys(it, now) }
-            }.associateBy { it.channelKey }
-            channelListNow = group.channels.mapNotNull { ch ->
-                val p = ch.epgChannelId?.let(programmes::get) ?: return@mapNotNull null
-                val span = (p.stopMs - p.startMs).coerceAtLeast(1L)
-                ch.id to NowInfo(p.title, (now - p.startMs).toFloat() / span)
-            }.toMap()
+            channelListNow = withContext(Dispatchers.Default) {
+                val now = System.currentTimeMillis()
+                val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
+                val programmes = keys.chunked(500)
+                    .flatMap { dao.nowPlayingForKeys(it, now) }
+                    .associateBy { it.channelKey }
+                group.channels.mapNotNull { ch ->
+                    val p = ch.epgChannelId?.let(programmes::get) ?: return@mapNotNull null
+                    val span = (p.stopMs - p.startMs).coerceAtLeast(1L)
+                    ch.id to NowInfo(p.title, (now - p.startMs).toFloat() / span)
+                }.toMap()
+            }
         }
     }
 
@@ -1382,6 +1399,16 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun stopPlayback() {
+        frameRateJob?.cancel()
+        frameRateJob = null
+        liveProgrammeJob?.cancel()
+        liveProgrammeJob = null
+        liveIndexJob?.cancel()
+        liveIndexJob = null
+        channelListNowJob?.cancel()
+        channelListNowJob = null
+        controlsHideJob?.cancel()
+        controlsHideJob = null
         progressJob?.cancel()
         progressJob = null
         statsJob?.cancel()
@@ -1399,9 +1426,20 @@ class PlayerActivity : ComponentActivity() {
         nextEpisodeJob?.cancel()
         nextEpisodeJob = null
         nextEpisodeInfo = null
+        controlsVisible = false
+        tracksOverlayVisible = false
+        statsOverlayVisible = false
+        channelListVisible = false
+        openListWhenReady = false
+        numericInput = ""
+        bannerChannel = null
+        bannerNowPlaying = null
+        bannerNext = null
+        liveProgramme = null
         playerViewRef?.player = null
-        player?.release()
+        val stoppedPlayer = player
         player = null
+        stoppedPlayer?.release()
     }
 
     companion object {

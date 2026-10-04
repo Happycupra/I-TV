@@ -28,9 +28,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels ORDER BY sortIndex ASC")
     suspend fun allChannels(): List<ChannelEntity>
 
-    /** Lightweight projection for the in-memory, accent-insensitive search index. */
+    /** Lightweight search fields, including renames/replacements with the same row count. */
     @Query("SELECT id, name, type FROM channels ORDER BY sortIndex ASC")
-    suspend fun searchIndexRows(): List<SearchIndexRow>
+    fun observeSearchIndexRows(): Flow<List<SearchIndexRow>>
 
     @Query("SELECT * FROM channels WHERE id IN (:ids)")
     suspend fun getChannelsByIds(ids: List<String>): List<ChannelEntity>

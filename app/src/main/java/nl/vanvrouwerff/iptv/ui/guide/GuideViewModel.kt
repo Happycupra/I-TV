@@ -152,11 +152,13 @@ class GuideViewModel : ViewModel() {
         val group = s.group ?: return
         programmesJob?.cancel()
         programmesJob = viewModelScope.launch {
-            val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
-            val rows = withContext(Dispatchers.IO) {
-                keys.chunked(500).flatMap { dao.programmesForKeys(it, s.fromMs, s.toMs) }
+            val programmes = withContext(Dispatchers.Default) {
+                val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
+                keys.chunked(500)
+                    .flatMap { dao.programmesForKeys(it, s.fromMs, s.toMs) }
+                    .groupBy { it.channelKey }
             }
-            _state.update { it.copy(programmesByKey = rows.groupBy { p -> p.channelKey }) }
+            _state.update { it.copy(programmesByKey = programmes) }
         }
     }
 

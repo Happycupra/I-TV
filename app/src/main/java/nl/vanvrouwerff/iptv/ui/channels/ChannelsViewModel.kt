@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -314,38 +315,13 @@ class ChannelsViewModel : ViewModel() {
 
     fun focusMemoryFor(type: ContentType): RailFocusMemory? = focusMemories[type]
 
-    private class SearchIndex(
-        val ids: Array<String>,
-        val names: Array<String>,
-        val types: Array<String>,
-    )
+    private val searchIndexFlow: StateFlow<ChannelSearchIndex?> =
+        buildSearchIndexFlow(dao.observeSearchIndexRows())
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
-    private val searchIndexFlow: StateFlow<SearchIndex?> = dao.observeChannelCount()
-        .distinctUntilChanged()
-        .debounce(500)
-        .map {
-            val rows = dao.searchIndexRows()
-            SearchIndex(
-                ids = Array(rows.size) { i -> rows[i].id },
-                names = Array(rows.size) { i -> normalizeForSearch(rows[i].name) },
-                types = Array(rows.size) { i -> rows[i].type },
-            )
-        }
-        .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, SharingStarted.Lazily, null)
-
-    private suspend fun runSearch(index: SearchIndex, query: String): List<Channel> {
-        val needle = normalizeForSearch(query)
-        if (needle.isEmpty()) return emptyList()
-        val perType = HashMap<String, Int>()
-        val hits = ArrayList<String>()
-        for (i in index.ids.indices) {
-            if (!index.names[i].contains(needle)) continue
-            val count = perType[index.types[i]] ?: 0
-            if (count >= SEARCH_LIMIT_PER_TYPE) continue
-            perType[index.types[i]] = count + 1
-            hits += index.ids[i]
-        }
+    private suspend fun runSearch(index: ChannelSearchIndex, query: String): List<Channel> {
+        val hits = index.matchingIds(query, SEARCH_LIMIT_PER_TYPE)
         if (hits.isEmpty()) return emptyList()
         val byId = hits.chunked(500)
             .flatMap { dao.getChannelsByIds(it) }
@@ -419,13 +395,13 @@ class ChannelsViewModel : ViewModel() {
             .launchIn(viewModelScope)
 
         // Global search over every type, accent-insensitive. The index is built lazily on the
-        // first non-blank query and rebuilt when the catalogue size changes.
+        // first non-blank query and rebuilt when catalogue search fields change.
         searchQueryFlow.debounce(200)
             .map { it.trim() }
             .distinctUntilChanged()
             .flatMapLatest { q ->
                 if (q.isBlank()) flowOf(emptyList())
-                else searchIndexFlow.filterNotNull().map { index -> runSearch(index, q) }
+                else searchIndexFlow.filterNotNull().mapLatest { index -> runSearch(index, q) }
             }
             .flowOn(Dispatchers.Default)
             .onEach { results -> _state.update { it.copy(searchResults = results) } }
@@ -833,14 +809,6 @@ private data class DerivedFields(
     val heroes: List<Channel>,
     val rails: List<Rail>,
 )
-
-internal fun normalizeForSearch(text: String): String =
-    java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
-        .replace(COMBINING_MARKS, "")
-        .lowercase()
-        .trim()
-
-private val COMBINING_MARKS = Regex("\\p{M}+")
 
 /** Channels that are favourites, in the order of [favoriteIds] (the user's own order). */
 internal fun inFavoriteOrder(channels: List<Channel>, favoriteIds: Set<String>): List<Channel> {
