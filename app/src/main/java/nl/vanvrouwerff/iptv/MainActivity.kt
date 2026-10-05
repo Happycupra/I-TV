@@ -3,6 +3,7 @@ package nl.vanvrouwerff.iptv
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -25,14 +26,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import nl.vanvrouwerff.iptv.data.Channel
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.data.ContentType
 import nl.vanvrouwerff.iptv.data.catchup.Catchup
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
 import nl.vanvrouwerff.iptv.player.PlayerActivity
+import nl.vanvrouwerff.iptv.player.EPISODE_QUEUE_REFERENCE_EXTRA
+import nl.vanvrouwerff.iptv.player.EpisodeQueueStore
+import nl.vanvrouwerff.iptv.player.PlayerEpisodeQueue
+import nl.vanvrouwerff.iptv.player.PlayerEpisodeQueueItem
 import nl.vanvrouwerff.iptv.ui.categories.CategoriesScreen
 import nl.vanvrouwerff.iptv.ui.common.isTelevision
 import nl.vanvrouwerff.iptv.ui.guide.GuideScreen
@@ -96,6 +104,40 @@ class MainActivity : ComponentActivity() {
 
     private fun openPlayerForEpisode(episode: Episode, season: SeriesSeason, series: SeriesRef, resumeMs: Long) {
         val orderedEpisodes = season.episodes
+        val queue = PlayerEpisodeQueue(
+            seriesChannelId = series.channelId,
+            seriesName = series.name,
+            seriesCover = series.cover,
+            seasonNumber = season.number,
+            episodes = orderedEpisodes.map { item ->
+                PlayerEpisodeQueueItem(
+                    id = item.id,
+                    url = item.streamUrl,
+                    name = item.title,
+                    episodeNumber = item.episodeNumber,
+                    cover = item.coverUrl,
+                    durationSecs = item.durationSecs,
+                )
+            },
+        )
+        if (queue.requiresFileTransfer()) {
+            lifecycleScope.launch {
+                val reference = try {
+                    withContext(Dispatchers.IO) { EpisodeQueueStore(cacheDir).write(queue) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, R.string.series_load_failed, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                startActivity(Intent(this@MainActivity, PlayerActivity::class.java).apply {
+                    putExtra(PlayerActivity.EXTRA_CHANNEL_ID, episode.id)
+                    putExtra(EPISODE_QUEUE_REFERENCE_EXTRA, reference)
+                    if (resumeMs > 0L) putExtra(PlayerActivity.EXTRA_RESUME_POSITION_MS, resumeMs)
+                })
+            }
+            return
+        }
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_SERIES_CHANNEL_ID, series.channelId)
             putExtra(PlayerActivity.EXTRA_SERIES_NAME, series.name)

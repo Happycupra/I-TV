@@ -1,14 +1,18 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package nl.vanvrouwerff.iptv.ui.settings
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -49,7 +53,7 @@ fun PhoneSetupPanel(qrSize: Dp = 150.dp, modifier: Modifier = Modifier) {
     }
     val qr = remember(url) { url?.let { encodeQr(it) } }
 
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (qr != null) {
             Image(
                 bitmap = qr,
@@ -73,7 +77,7 @@ fun PhoneSetupPanel(qrSize: Dp = 150.dp, modifier: Modifier = Modifier) {
                 text = if (url != null) stringResource(R.string.phone_setup_body) else stringResource(R.string.phone_setup_offline),
                 style = MaterialTheme.typography.bodySmall,
                 color = IptvPalette.TextSecondary,
-                modifier = Modifier.width(360.dp),
+                modifier = Modifier.widthIn(max = 360.dp),
             )
             url?.let {
                 Text(

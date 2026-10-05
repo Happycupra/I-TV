@@ -34,7 +34,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,7 +45,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import nl.vanvrouwerff.iptv.ui.theme.FocusStyle
@@ -67,7 +68,7 @@ fun DetailScaffold(
     actions: @Composable RowScope.() -> Unit,
     sections: LazyListScope.() -> Unit,
 ) {
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     val kenBurns = rememberInfiniteTransition(label = "detail-ken-burns")
     val backdropScale by kenBurns.animateFloat(
         initialValue = 1f,
@@ -121,7 +122,7 @@ fun DetailScaffold(
             contentPadding = PaddingValues(bottom = 48.dp),
         ) {
             item(key = "__header__") {
-                Box(modifier = Modifier.fillMaxWidth().height(if (compactScreen) 360.dp else DETAIL_HEADER_HEIGHT)) {
+                Box(modifier = (if (compactScreen) Modifier.fillMaxWidth().heightIn(min = 280.dp) else Modifier.fillMaxWidth().height(DETAIL_HEADER_HEIGHT))) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -129,6 +130,7 @@ fun DetailScaffold(
                             .padding(
                                 start = if (compactScreen) 16.dp else DETAIL_H_PADDING,
                                 end = if (compactScreen) 16.dp else 32.dp,
+                                top = if (compactScreen) 32.dp else 0.dp,
                                 bottom = 24.dp,
                             ),
                     ) {
@@ -191,7 +193,7 @@ fun LazyListScope.detailSection(
     content: @Composable () -> Unit,
 ) {
     item(key = key) {
-        val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+        val compactScreen = isCompactTouchLayout()
         val horizontalPadding = if (compactScreen) 16.dp else DETAIL_H_PADDING
         Column(
             modifier = Modifier
@@ -219,7 +221,7 @@ fun LazyListScope.detailSection(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FocusableTextBlock(text: String, footer: List<String> = emptyList()) {
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     Surface(

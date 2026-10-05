@@ -17,6 +17,8 @@ data class PlaylistSnapshot(
     val channels: List<Channel>,
     /** EPG programmes, when the source provides them. Best-effort and independent. */
     val programmes: List<ProgrammeEntity> = emptyList(),
+    /** Optional EPG failure, kept separate from catalogue/provider health. */
+    val epgError: String? = null,
     val etag: String? = null,
     val lastModified: String? = null,
     val notModified: Boolean = false,
@@ -32,6 +34,8 @@ interface PlaylistRepository {
         etag: String?,
         lastModified: String?,
         onProgress: (ImportProgress) -> Unit = {},
+        /** An external EPG override makes the provider's feed unnecessary. */
+        includeEpg: Boolean = true,
         /** Called as soon as a partition is available, so Live can land before VOD/series. */
         onSectionReady: suspend (PlaylistSectionResult) -> Unit = {},
     ): PlaylistSnapshot

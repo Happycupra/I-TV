@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package nl.vanvrouwerff.iptv.ui.channels
 
 import nl.vanvrouwerff.iptv.data.DisplayNames
@@ -22,14 +24,16 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -72,7 +76,10 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -88,11 +95,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
@@ -130,7 +137,7 @@ private const val HERO_SWAP_FOCUS_DELAY_MS: Long = 650L
 
 @Composable
 private fun screenHorizontalPadding(): Dp =
-    if (LocalConfiguration.current.screenWidthDp < 600) 16.dp else 48.dp
+    if (isCompactTouchLayout()) 16.dp else 48.dp
 
 private data class TypeTab(val type: ContentType, val labelRes: Int, val emptyRes: Int)
 
@@ -263,7 +270,7 @@ private fun NetflixLayout(
     // Focus restore: only when this layout is freshly composed (coming back from a detail
     // screen) and only for the tab that was active then. A tab switch or cold start (no
     // memory) lands on the hero as before.
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     val initialType = remember { state.selectedType }
     val initialMemory = remember { focusMemoryFor(state.selectedType) }
     val railsListState = remember(state.selectedType) {
@@ -313,6 +320,7 @@ private fun NetflixLayout(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                 if (searchVisible || state.managingFavorites || contextTarget != null) return@onPreviewKeyEvent false
@@ -522,6 +530,17 @@ private fun RailsView(
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (searchVisible || onStartManaging != null) {
+            if (isCompactTouchLayout()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (searchVisible) SearchBar(state.searchQuery, onSearchChange, onCloseSearch, Modifier.fillMaxWidth())
+                    if (onStartManaging != null) Button(onClick = onStartManaging, modifier = Modifier.align(Alignment.End)) {
+                        Text(stringResource(R.string.favorites_manage))
+                    }
+                }
+            } else {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding()),
                 verticalAlignment = Alignment.CenterVertically,
@@ -545,6 +564,7 @@ private fun RailsView(
                         )
                     }
                 }
+            }
             }
         }
 
@@ -678,6 +698,8 @@ private fun SearchBar(
     // it is because the user asked to type.
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
+    val voicePrompt = stringResource(R.string.search_voice)
+    val voiceUnsupportedMessage = stringResource(R.string.search_voice_unsupported)
 
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
@@ -705,7 +727,7 @@ private fun SearchBar(
             value = query,
             onValueChange = onQueryChange,
             singleLine = true,
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(showKeyboardOnFocus = false),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(showKeyboardOnFocus = !LocalContext.current.isTelevision()),
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Filled.Search,
@@ -730,7 +752,7 @@ private fun SearchBar(
                     )
                     putExtra(
                         RecognizerIntent.EXTRA_PROMPT,
-                        context.getString(R.string.search_voice),
+                        voicePrompt,
                     )
                 }
                 try {
@@ -740,7 +762,7 @@ private fun SearchBar(
                     // a toast rather than crashing.
                     Toast.makeText(
                         context,
-                        context.getString(R.string.search_voice_unsupported),
+                        voiceUnsupportedMessage,
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -927,6 +949,7 @@ private fun ManageFavoritesView(
     onToggleFavorite: (String) -> Unit,
     onMoveFavorite: (String, Int) -> Unit = { _, _ -> },
 ) {
+    val compactScreen = isCompactTouchLayout()
     var orderMode by remember { mutableStateOf(false) }
     var movingId by remember { mutableStateOf<String?>(null) }
     // Manage mode is TV-only, and `state.channels`/`state.categories` are the current
@@ -944,7 +967,7 @@ private fun ManageFavoritesView(
     val star = stringResource(R.string.favorites_marker)
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = screenHorizontalPadding(), vertical = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = stringResource(R.string.favorites_manage),
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -954,11 +977,10 @@ private fun ManageFavoritesView(
             )
             Spacer(Modifier.width(16.dp))
             Text(
-                stringResource(if (orderMode) R.string.favorites_hint_order else R.string.favorites_hint_add),
+                stringResource(if (compactScreen) { if (orderMode) R.string.favorites_hint_touch_order else R.string.favorites_hint_touch_add } else { if (orderMode) R.string.favorites_hint_order else R.string.favorites_hint_add }),
                 style = MaterialTheme.typography.bodySmall,
                 color = IptvPalette.TextTertiary,
             )
-            Spacer(Modifier.weight(1f))
             Button(onClick = onDone) {
                 Text(
                     stringResource(R.string.favorites_done),
@@ -969,7 +991,15 @@ private fun ManageFavoritesView(
 
         Spacer(Modifier.height(16.dp))
 
+        if (compactScreen) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                item(key = "__order__") { Box(Modifier.width(200.dp)) { CategoryItem(stringResource(R.string.favorites_order), orderMode, { orderMode = true; movingId = null }) } }
+                item(key = "__all__") { Box(Modifier.width(140.dp)) { CategoryItem(stringResource(R.string.favorites_all_categories), !orderMode && selectedCat == null, { orderMode = false; selectedCat = null }) } }
+                items(categories, key = { it }) { cat -> Box(Modifier.width(200.dp)) { CategoryItem(DisplayNames.clean(cat), !orderMode && selectedCat == cat, { orderMode = false; selectedCat = cat }) } }
+            }
+        }
         Row(modifier = Modifier.fillMaxSize()) {
+            if (!compactScreen) {
             LazyColumn(
                 modifier = Modifier
                     .width(320.dp)
@@ -1011,6 +1041,7 @@ private fun ManageFavoritesView(
             }
 
             Spacer(Modifier.width(16.dp))
+            }
 
             if (orderMode) {
                 val favs = remember(state.favoriteIds, tvChannels) {
@@ -1059,11 +1090,21 @@ private fun ManageFavoritesView(
                                     }
                                 },
                             ) {
+                                if (compactScreen) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(Modifier.weight(1f)) { ChannelListRow(ch, "${index + 1}", onClick = { onToggleFavorite(ch.id) }) }
+                                        val upLabel = stringResource(R.string.favorites_move_up)
+                                        val downLabel = stringResource(R.string.favorites_move_down)
+                                        Button(onClick = { onMoveFavorite(ch.id, -1) }, enabled = index > 0, modifier = Modifier.semantics { contentDescription = upLabel }) { Text("↑") }
+                                        Button(onClick = { onMoveFavorite(ch.id, 1) }, enabled = index < favs.lastIndex, modifier = Modifier.semantics { contentDescription = downLabel }) { Text("↓") }
+                                    }
+                                } else {
                                 ChannelListRow(
                                     channel = ch,
                                     trailing = if (moving) "\u2195" else "${index + 1}",
                                     onClick = { movingId = if (moving) null else ch.id },
                                 )
+                                }
                             }
                         }
                     }
@@ -1225,6 +1266,30 @@ private fun TopBar(
     selectedTabFocusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit = {},
 ) {
+    if (isCompactTouchLayout()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding(), vertical = 8.dp)
+                .onFocusChanged { onFocusChanged(it.hasFocus) },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.app_name), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = IptvPalette.Accent)
+                SearchChip(onClick = onOpenSearch)
+                SettingsChip(onClick = onOpenSettings)
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Tabs.forEach { tab ->
+                    TabPill(stringResource(tab.labelRes), tab.type == selected, { onSelect(tab.type) }, if (tab.type == selected) selectedTabFocusRequester else null)
+                }
+                TabPill(stringResource(R.string.categories_open), false, onOpenCategories)
+                if (onOpenGuide != null) TabPill(stringResource(R.string.guide_open), false, onOpenGuide)
+                SourceStatusPill(refreshing, lastRefreshAtMs, error, onRefresh)
+                if (activeProfileName != null) ProfileChip(activeProfileName, activeProfileColorArgb, activeProfileEmoji, onOpenProfiles)
+                HomeSoftResetButton()
+            }
+        }
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1675,6 +1740,11 @@ private fun HeroBanner(
         if (focusRequester == null) runCatching { localFocus.requestFocus() }
     }
 
+    if (isCompactTouchLayout()) {
+        MobileHero(channel, isLastWatched, nowPlaying, progressFraction, activeFocus, onPlay, onMoreInfo)
+        return
+    }
+
     if (channel.type == ContentType.TV) {
         CompactTvHero(
             channel = channel,
@@ -1739,7 +1809,7 @@ private fun HeroBanner(
         label = "hero-trailer-alpha",
     )
 
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(HERO_HEIGHT)
@@ -1983,6 +2053,42 @@ private fun HeroBanner(
 }
 
 @Composable
+private fun MobileHero(
+    channel: Channel,
+    isLastWatched: Boolean,
+    nowPlaying: String?,
+    progressFraction: Float?,
+    focusRequester: FocusRequester,
+    onPlay: () -> Unit,
+    onMoreInfo: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding())
+            .clip(RoundedCornerShape(16.dp)).background(IptvPalette.SurfaceElevated).padding(16.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            channel.logoUrl?.let { url ->
+                AsyncImage(url, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (isLastWatched) Text(stringResource(R.string.channels_last_watched), style = MaterialTheme.typography.labelSmall, color = IptvPalette.AccentSoft)
+                Text(channel.name, style = MaterialTheme.typography.titleLarge, color = IptvPalette.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (!nowPlaying.isNullOrBlank()) Text(stringResource(R.string.epg_now_prefix, nowPlaying), style = MaterialTheme.typography.bodyMedium, color = IptvPalette.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onPlay, modifier = Modifier.focusRequester(focusRequester)) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                Text(heroCtaLabel(channel.type, progressFraction))
+            }
+            if (channel.type == ContentType.MOVIE) Button(onClick = onMoreInfo) { Text(stringResource(R.string.hero_more_info)) }
+        }
+    }
+}
+
+@Composable
 private fun heroCtaLabel(type: ContentType, progressFraction: Float?): String = when {
     // A resumable title deserves a different CTA — Netflix-style "Hervatten". Once the
     // fraction crosses the watched threshold we show "Afspelen" so the user can rewatch
@@ -2069,7 +2175,7 @@ private fun RailRow(
     }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(start = 48.dp, end = 48.dp, bottom = 12.dp),
+            modifier = Modifier.padding(start = screenHorizontalPadding(), end = screenHorizontalPadding(), bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Thin accent tick — gives the rail-title row a bit of hierarchy without
@@ -2095,7 +2201,7 @@ private fun RailRow(
                 state = rowState,
                 // Top-10 cards are noticeably wider because of the left-side numeral, so
                 // a touch more outer padding keeps the first rank from getting clipped.
-                contentPadding = PaddingValues(start = 48.dp, end = 48.dp),
+                contentPadding = PaddingValues(horizontal = screenHorizontalPadding()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 itemsIndexed(topTen) { i, channel ->
@@ -2751,6 +2857,7 @@ private fun CardContextMenu(
             .width(420.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(IptvPalette.SurfaceLift)
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

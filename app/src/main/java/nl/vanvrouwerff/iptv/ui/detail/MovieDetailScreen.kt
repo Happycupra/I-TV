@@ -57,9 +57,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -118,6 +118,10 @@ private fun DetailBody(
     LaunchedEffect(Unit) { runCatching { playFocus.requestFocus() } }
     val context = LocalContext.current
     val resumable = state.hasProgress && !state.watched
+    val overviewTitle = stringResource(R.string.detail_section_overview)
+    val castTitle = stringResource(R.string.rail_cast)
+    val similarTitle = stringResource(R.string.rail_more_like_this)
+    val relatedTitle = stringResource(R.string.rail_related, channel.groupTitle.orEmpty())
 
     val meta = listOfNotNull(
         state.releaseYear,
@@ -189,12 +193,12 @@ private fun DetailBody(
             state.cast?.let { "Cast: $it" },
         )
         state.plot?.takeIf { it.isNotBlank() }?.let { plot ->
-            detailSection(key = "plot", title = context.getString(R.string.detail_section_overview)) {
+            detailSection(key = "plot", title = overviewTitle) {
                 FocusableTextBlock(text = plot, footer = credits)
             }
         }
         if (state.castList.isNotEmpty()) {
-            detailSection(key = "cast", title = context.getString(R.string.rail_cast)) {
+            detailSection(key = "cast", title = castTitle) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.castList, key = { it.id }) { member -> CastAvatar(member) }
                 }
@@ -203,7 +207,7 @@ private fun DetailBody(
         when {
             state.similar.isNotEmpty() -> detailSection(
                 key = "similar",
-                title = context.getString(R.string.rail_more_like_this),
+                title = similarTitle,
             ) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.similar, key = { it.id }) { ch ->
@@ -213,7 +217,7 @@ private fun DetailBody(
             }
             state.related.isNotEmpty() && channel.groupTitle != null -> detailSection(
                 key = "related",
-                title = context.getString(R.string.rail_related, channel.groupTitle),
+                title = relatedTitle,
             ) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.related, key = { it.id }) { ch ->

@@ -1,5 +1,6 @@
 package nl.vanvrouwerff.iptv.ui.guide
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nl.vanvrouwerff.iptv.IptvApp
@@ -21,6 +23,7 @@ import nl.vanvrouwerff.iptv.data.catchup.Catchup
 import nl.vanvrouwerff.iptv.data.db.ProgrammeEntity
 import nl.vanvrouwerff.iptv.data.live.LiveChannelIndex
 import nl.vanvrouwerff.iptv.data.live.LiveGroup
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 
 data class GuideState(
     val loading: Boolean = true,
@@ -35,6 +38,9 @@ data class GuideState(
     val message: String? = null,
     /** "channelId:startMs" of every programme with a reminder. */
     val reminderKeys: Set<String> = emptySet(),
+    val epgRefreshing: Boolean = false,
+    val lastEpgRefreshAt: Long = 0L,
+    val epgError: String? = null,
 ) {
     val group: LiveGroup? get() = groups.getOrNull(groupIndex)
 }
@@ -51,8 +57,35 @@ class GuideViewModel : ViewModel() {
     /** Catch-up items to hand to the player. */
     val playRequests: SharedFlow<Channel> = _playRequests.asSharedFlow()
     private var loaded = false
+    private var indexJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            app.settings.lastEpgRefreshAt.distinctUntilChanged().collect { timestamp ->
+                _state.update { it.copy(lastEpgRefreshAt = timestamp) }
+                if (loaded) loadProgrammes()
+            }
+        }
+        viewModelScope.launch {
+            app.refreshUseCase.refreshingEpg.collect { refreshing ->
+                _state.update { it.copy(epgRefreshing = refreshing) }
+            }
+        }
+        viewModelScope.launch {
+            app.refreshUseCase.lastEpgError.collect { error ->
+                _state.update { it.copy(epgError = error) }
+            }
+        }
+        viewModelScope.launch {
+            var previous: Long? = null
+            app.settings.lastLiveRefreshAt.distinctUntilChanged().collect { timestamp ->
+                if (previous != null && previous != timestamp && loaded) {
+                    loaded = false
+                    load()
+                }
+                previous = timestamp
+            }
+        }
         viewModelScope.launch {
             app.reminders.all.collect { list ->
                 _state.update { s -> s.copy(reminderKeys = list.mapTo(HashSet()) { reminderKey(it.channelId, it.startMs) }) }
@@ -76,8 +109,9 @@ class GuideViewModel : ViewModel() {
     fun load() {
         if (loaded) return
         loaded = true
-        viewModelScope.launch {
-            val index = withContext(Dispatchers.IO) {
+        indexJob?.cancel()
+        indexJob = viewModelScope.launch {
+            val index = runCatchingCancellable { withContext(Dispatchers.IO) {
                 LiveChannelIndex.load(
                     dao = dao,
                     profileId = app.activeProfileId.value,
@@ -85,7 +119,12 @@ class GuideViewModel : ViewModel() {
                     uncategorizedLabel = app.getString(R.string.channel_list_uncategorized),
                     hideAdult = app.kidsMode.value,
                 )
-            }
+            } }.onFailure {
+                Log.w("Guide", "Could not load channel index", it)
+                loaded = false
+                _state.update { s -> s.copy(loading = false) }
+                showMessage(app.getString(R.string.guide_load_failed))
+            }.getOrNull() ?: return@launch
             val from = floorToHalfHour(System.currentTimeMillis())
             _state.update {
                 it.copy(
@@ -98,21 +137,33 @@ class GuideViewModel : ViewModel() {
                 )
             }
             loadProgrammes()
+            app.appScope.launch { app.refreshUseCase.refreshEpg() }
         }
+    }
+
+    fun syncEpg() {
+        if (_state.value.epgRefreshing) return
+        app.appScope.launch { app.refreshUseCase.refreshEpg(force = true) }
     }
 
     /** Moves the time window by [deltaMs], within [MAX_BACK_MS] before and [MAX_FORWARD_MS] after now. */
     fun shiftWindow(deltaMs: Long) {
         val nowFloor = floorToHalfHour(System.currentTimeMillis())
         val from = (_state.value.fromMs + deltaMs).coerceIn(nowFloor - MAX_BACK_MS, nowFloor + MAX_FORWARD_MS)
-        if (from == _state.value.fromMs) return
+        if (from == _state.value.fromMs) {
+            loadProgrammes()
+            return
+        }
         _state.update { it.copy(fromMs = from, toMs = from + WINDOW_MS) }
         loadProgrammes()
     }
 
     fun goToNow() {
         val from = floorToHalfHour(System.currentTimeMillis())
-        if (from == _state.value.fromMs) return
+        if (from == _state.value.fromMs) {
+            loadProgrammes()
+            return
+        }
         _state.update { it.copy(fromMs = from, toMs = from + WINDOW_MS) }
         loadProgrammes()
     }
@@ -152,11 +203,16 @@ class GuideViewModel : ViewModel() {
         val group = s.group ?: return
         programmesJob?.cancel()
         programmesJob = viewModelScope.launch {
-            val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
-            val rows = withContext(Dispatchers.IO) {
-                keys.chunked(500).flatMap { dao.programmesForKeys(it, s.fromMs, s.toMs) }
-            }
-            _state.update { it.copy(programmesByKey = rows.groupBy { p -> p.channelKey }) }
+            val programmes = runCatchingCancellable { withContext(Dispatchers.Default) {
+                val keys = group.channels.mapNotNull { it.epgChannelId }.distinct()
+                keys.chunked(500)
+                    .flatMap { dao.programmesForKeys(it, s.fromMs, s.toMs) }
+                    .groupBy { it.channelKey }
+            } }.onFailure {
+                Log.w("Guide", "Could not load programme window", it)
+                showMessage(app.getString(R.string.guide_load_failed))
+            }.getOrNull() ?: return@launch
+            _state.update { it.copy(programmesByKey = programmes) }
         }
     }
 

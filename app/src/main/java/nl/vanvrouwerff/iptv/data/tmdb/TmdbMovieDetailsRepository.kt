@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import nl.vanvrouwerff.iptv.data.Channel
 import nl.vanvrouwerff.iptv.data.db.ChannelDao
 import nl.vanvrouwerff.iptv.data.db.toDomain
+import nl.vanvrouwerff.iptv.data.repo.runCatchingCancellable
 
 /**
  * Fetches TMDB's full detail bundle for a single movie — trailer key, cast, similar titles —
@@ -48,16 +49,16 @@ class TmdbMovieDetailsRepository {
             return null
         }
         val now = System.currentTimeMillis()
-        // The year is part of the key: a year-less lookup (hero preload) can hit a remake,
-        // and must not be served to the detail screen that does know the year.
-        val key = "$channelId|${releaseYear ?: ""}"
+        // Provider IDs can be reused for another title after a source change. The year
+        // also separates a year-less hero preload from a detail lookup for a remake.
+        val key = "$channelId|${title.trim()}|${releaseYear ?: ""}"
         val cached = cache[key]
         if (cached != null) {
             val ttl = if (cached.bundle != null) CACHE_TTL_MS else MISS_TTL_MS
             if (now - cached.fetchedAt < ttl) return cached.bundle
         }
 
-        val bundle = runCatching {
+        val bundle = runCatchingCancellable {
             withContext(Dispatchers.IO) { fetchFresh(title, releaseYear) }
         }.getOrElse {
             Log.w(TAG, "TMDB movie lookup threw for \"$title\"", it)
@@ -132,7 +133,7 @@ class TmdbMovieDetailsRepository {
      * 40+ second full-table scan + normalisation that was happening per-screen. Mutex
      * prevents two concurrent detail opens both triggering the build.
      */
-    @Volatile private var movieIndex: Map<String, Channel>? = null
+    private val movieIndex = CatalogueIndexCache<Map<String, Channel>>()
     private val indexBuildMutex = Mutex()
 
     /**
@@ -160,12 +161,17 @@ class TmdbMovieDetailsRepository {
     }
 
     private suspend fun getOrBuildMovieIndex(dao: ChannelDao): Map<String, Channel> {
-        movieIndex?.let { return it }
+        movieIndex.snapshot().value?.let { return it }
         return indexBuildMutex.withLock {
-            // Double-check after acquiring the lock — another caller may have built it
-            // while we were waiting.
-            movieIndex?.let { return@withLock it }
-            withContext(Dispatchers.Default) {
+            buildLatestMovieIndex(dao)
+        }
+    }
+
+    private suspend fun buildLatestMovieIndex(dao: ChannelDao): Map<String, Channel> {
+        while (true) {
+            val snapshot = movieIndex.snapshot()
+            snapshot.value?.let { return it }
+            val index = withContext(Dispatchers.Default) {
                 val started = System.currentTimeMillis()
                 val rows = dao.getChannelsByType("MOVIE")
                 val index = HashMap<String, Channel>(rows.size)
@@ -179,16 +185,18 @@ class TmdbMovieDetailsRepository {
                     "built movie index size=${index.size} from ${rows.size} rows " +
                         "in ${System.currentTimeMillis() - started} ms",
                 )
-                // An empty index means the catalogue hasn't landed yet; don't pin that.
-                if (index.isNotEmpty()) movieIndex = index
                 index
             }
+            // A refresh may have committed while this large index was being built.
+            // Retry against the current rows instead of publishing or returning stale URLs.
+            // An empty index means the catalogue hasn't landed yet; don't pin that.
+            if (movieIndex.publish(snapshot.generation, index.takeIf { it.isNotEmpty() })) return index
         }
     }
 
     /** Force a rebuild on the next match call — invoked after a catalogue refresh. */
     fun invalidateMovieIndex() {
-        movieIndex = null
+        movieIndex.invalidate()
     }
 
     data class MovieDetailsBundle(

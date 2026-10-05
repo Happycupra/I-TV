@@ -3,18 +3,23 @@ package nl.vanvrouwerff.iptv.data.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
 class SettingsStore(private val context: Context) {
 
-    val sourceConfig: Flow<SourceConfig?> = context.dataStore.data.map { prefs ->
+    val sourceConfig: Flow<SourceConfig?> = context.dataStore.data.map(::sourceFromPreferences)
+
+    private fun sourceFromPreferences(prefs: Preferences): SourceConfig? =
         when (prefs[TYPE]) {
             TYPE_M3U -> prefs[M3U_URL]?.takeIf { it.isNotBlank() }?.let(SourceConfig::M3u)
             TYPE_XTREAM -> {
@@ -27,7 +32,6 @@ class SettingsStore(private val context: Context) {
             }
             else -> null
         }
-    }
 
     val playlistEtag: Flow<String?> = context.dataStore.data.map { it[PLAYLIST_ETAG] }
     val playlistLastModified: Flow<String?> = context.dataStore.data.map { it[PLAYLIST_LAST_MODIFIED] }
@@ -147,8 +151,45 @@ class SettingsStore(private val context: Context) {
 
     val lastEpgRefreshAt: Flow<Long> = context.dataStore.data.map { it[LAST_EPG_REFRESH_AT] ?: 0L }
 
+    /** Optional XMLTV source for the current provider. Empty uses the provider's EPG. */
+    val externalEpgUrl: Flow<String> = context.dataStore.data
+        .map { it[EXTERNAL_EPG_URL].orEmpty() }.distinctUntilChanged()
+
+    suspend fun setExternalEpgUrl(raw: String) {
+        val trimmed = raw.trim()
+        val url = if (trimmed.isEmpty()) "" else {
+            requireNotNull(trimmed.toHttpUrlOrNull()) { "Ungültige EPG-Adresse. Bitte HTTP oder HTTPS verwenden." }.toString()
+        }
+        context.dataStore.edit { prefs ->
+            if (prefs[EXTERNAL_EPG_URL].orEmpty() != url) {
+                if (url.isEmpty()) prefs.remove(EXTERNAL_EPG_URL) else prefs[EXTERNAL_EPG_URL] = url
+                prefs.remove(LAST_EPG_REFRESH_AT)
+            }
+        }
+    }
+
     suspend fun markEpgRefresh(nowMs: Long = System.currentTimeMillis()) {
         context.dataStore.edit { prefs -> prefs[LAST_EPG_REFRESH_AT] = nowMs }
+    }
+
+    /** A configuration edit must never receive an older download's successful timestamp. */
+    suspend fun markEpgRefreshIfCurrent(
+        expectedSource: SourceConfig,
+        expectedFilter: String,
+        expectedUrl: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        var marked = false
+        context.dataStore.edit { prefs ->
+            if (sourceFromPreferences(prefs) == expectedSource &&
+                (prefs[CATEGORY_FILTER] ?: DEFAULT_CATEGORY_FILTER) == expectedFilter &&
+                prefs[EXTERNAL_EPG_URL].orEmpty() == expectedUrl
+            ) {
+                prefs[LAST_EPG_REFRESH_AT] = nowMs
+                marked = true
+            }
+        }
+        return marked
     }
 
     /** Version of the catalogue format stored in Room; below the app's version forces a full reload. */
@@ -248,28 +289,55 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setCategoryFilter(raw: String) {
         context.dataStore.edit { prefs ->
+            if ((prefs[CATEGORY_FILTER] ?: DEFAULT_CATEGORY_FILTER) != raw.trim()) {
+                prefs.remove(LAST_REFRESH_AT)
+                prefs.remove(CATALOGUE_VERSION)
+                prefs.remove(LAST_EPG_REFRESH_AT)
+            }
             prefs[CATEGORY_FILTER] = raw.trim()
             prefs.remove(PLAYLIST_ETAG); prefs.remove(PLAYLIST_LAST_MODIFIED)
         }
     }
 
-    suspend fun saveM3u(url: String) {
-        context.dataStore.edit { prefs ->
-            prefs[TYPE] = TYPE_M3U
-            prefs[M3U_URL] = url.trim()
-            prefs.remove(XT_HOST); prefs.remove(XT_USER); prefs.remove(XT_PASS)
-            prefs.remove(PLAYLIST_ETAG); prefs.remove(PLAYLIST_LAST_MODIFIED)
-        }
-    }
+    suspend fun saveM3u(url: String) = saveSource(SourceConfig.M3u(url))
 
-    suspend fun saveXtream(host: String, username: String, password: String) {
+    suspend fun saveXtream(host: String, username: String, password: String) =
+        saveSource(SourceConfig.Xtream(host, username, password))
+
+    /** Source and filter form one configuration; a refresh must never see half a save. */
+    suspend fun saveSource(source: SourceConfig, categoryFilter: String? = null) {
         context.dataStore.edit { prefs ->
-            prefs[TYPE] = TYPE_XTREAM
-            prefs[XT_HOST] = host.trim().trimEnd('/')
-            prefs[XT_USER] = username.trim()
-            prefs[XT_PASS] = password
-            prefs.remove(M3U_URL)
-            prefs.remove(PLAYLIST_ETAG); prefs.remove(PLAYLIST_LAST_MODIFIED)
+            val sourceChanged = when (source) {
+                is SourceConfig.M3u -> prefs[TYPE] != TYPE_M3U || prefs[M3U_URL] != source.url.trim()
+                is SourceConfig.Xtream -> prefs[TYPE] != TYPE_XTREAM ||
+                    prefs[XT_HOST] != source.host.trim().trimEnd('/') ||
+                    prefs[XT_USER] != source.username.trim() || prefs[XT_PASS] != source.password
+            }
+            val filterChanged = categoryFilter != null &&
+                (prefs[CATEGORY_FILTER] ?: DEFAULT_CATEGORY_FILTER) != categoryFilter.trim()
+            when (source) {
+                is SourceConfig.M3u -> {
+                    prefs[TYPE] = TYPE_M3U
+                    prefs[M3U_URL] = source.url.trim()
+                    prefs.remove(XT_HOST); prefs.remove(XT_USER); prefs.remove(XT_PASS)
+                }
+                is SourceConfig.Xtream -> {
+                    prefs[TYPE] = TYPE_XTREAM
+                    prefs[XT_HOST] = source.host.trim().trimEnd('/')
+                    prefs[XT_USER] = source.username.trim()
+                    prefs[XT_PASS] = source.password
+                    prefs.remove(M3U_URL)
+                }
+            }
+            if (categoryFilter != null) prefs[CATEGORY_FILTER] = categoryFilter.trim()
+            if (sourceChanged) prefs.remove(EXTERNAL_EPG_URL)
+            if (sourceChanged || filterChanged) {
+                prefs.remove(LAST_REFRESH_AT)
+                prefs.remove(CATALOGUE_VERSION)
+                prefs.remove(LAST_EPG_REFRESH_AT)
+                prefs.remove(PLAYLIST_ETAG)
+                prefs.remove(PLAYLIST_LAST_MODIFIED)
+            }
         }
     }
 
@@ -300,6 +368,7 @@ class SettingsStore(private val context: Context) {
         val LAST_PROVIDER_ERROR = stringPreferencesKey("last_provider_error")
         val CATALOGUE_SOURCE_KEY = stringPreferencesKey("catalogue_source_key")
         val LAST_EPG_REFRESH_AT = longPreferencesKey("last_epg_refresh_at")
+        val EXTERNAL_EPG_URL = stringPreferencesKey("external_epg_url")
         val CATALOGUE_VERSION = androidx.datastore.preferences.core.intPreferencesKey("catalogue_version")
         val LAST_PROFILE_SESSION_AT = longPreferencesKey("last_profile_session_at")
         val ACTIVE_PROFILE_ID = stringPreferencesKey("active_profile_id")

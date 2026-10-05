@@ -2,6 +2,7 @@ package nl.vanvrouwerff.iptv.player
 
 import nl.vanvrouwerff.iptv.data.DisplayNames
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +31,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,7 +43,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import nl.vanvrouwerff.iptv.R
@@ -70,26 +73,35 @@ fun ChannelListOverlay(
     channelNumberOf: (String) -> Int?,
     onSelectGroup: (Int) -> Unit,
     onZap: (ChannelGroup, Channel) -> Unit,
+    interactive: Boolean = true,
+    onOpenPreview: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val group = groups.getOrNull(groupIndex) ?: return
-    val startIndex = remember(groupIndex, groups) {
+    val openPreview by rememberUpdatedState(onOpenPreview)
+    val previewChannelId = if (interactive) null else currentChannelId
+    val startIndex = remember(groupIndex, groups, previewChannelId) {
         group.channels.indexOfFirst { it.id == currentChannelId }.coerceAtLeast(0)
     }
-    val listState = remember(groupIndex, groups) { LazyListState(startIndex, 0) }
+    val listState = remember(groupIndex, groups, previewChannelId) { LazyListState(startIndex, 0) }
     val focusTarget = remember(groupIndex, groups) { FocusRequester() }
-    LaunchedEffect(groupIndex, groups) {
+    LaunchedEffect(groupIndex, groups, interactive) {
+        if (!interactive) return@LaunchedEffect
         androidx.compose.runtime.withFrameNanos { }
         runCatching { focusTarget.requestFocus() }
     }
 
     Column(
         modifier = modifier
+            .then(if (interactive) Modifier else Modifier.pointerInput(Unit) {
+                detectTapGestures(onTap = { openPreview() })
+            })
             .width(PANEL_WIDTH)
             .fillMaxHeight()
             .background(IptvPalette.BackgroundDeep.copy(alpha = 0.92f))
             .padding(horizontal = 20.dp, vertical = 24.dp)
             .onPreviewKeyEvent { event ->
+                if (!interactive) return@onPreviewKeyEvent false
                 if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                 when (event.nativeKeyEvent.keyCode) {
                     android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -105,11 +117,13 @@ fun ChannelListOverlay(
             },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "◀",
-                style = MaterialTheme.typography.titleMedium,
-                color = IptvPalette.TextTertiary,
-            )
+            Surface(
+                onClick = { onSelectGroup((groupIndex - 1 + groups.size) % groups.size) },
+                enabled = interactive,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Text("◀", modifier = Modifier.align(Alignment.Center), color = IptvPalette.TextTertiary)
+            }
             Text(
                 text = DisplayNames.clean(group.title),
                 style = MaterialTheme.typography.titleMedium.copy(
@@ -120,11 +134,13 @@ fun ChannelListOverlay(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
             )
-            Text(
-                text = "▶",
-                style = MaterialTheme.typography.titleMedium,
-                color = IptvPalette.TextTertiary,
-            )
+            Surface(
+                onClick = { onSelectGroup((groupIndex + 1) % groups.size) },
+                enabled = interactive,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Text("▶", modifier = Modifier.align(Alignment.Center), color = IptvPalette.TextTertiary)
+            }
         }
         Text(
             text = stringResource(R.string.channel_list_count, groupIndex + 1, groups.size, group.channels.size),
@@ -146,12 +162,13 @@ fun ChannelListOverlay(
                     playing = ch.id == currentChannelId,
                     modifier = if (index == startIndex) Modifier.focusRequester(focusTarget) else Modifier,
                     onClick = { onZap(group, ch) },
+                    enabled = interactive,
                 )
             }
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            text = stringResource(R.string.channel_list_hint),
+            text = stringResource(if (interactive) R.string.channel_list_hint else R.string.channel_list_preview_hint),
             style = MaterialTheme.typography.labelSmall,
             color = IptvPalette.TextSecondary,
         )
@@ -167,17 +184,21 @@ private fun ChannelListItem(
     playing: Boolean,
     modifier: Modifier,
     onClick: () -> Unit,
+    enabled: Boolean,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(10.dp)
     Surface(
         onClick = onClick,
+        enabled = enabled,
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (playing) IptvPalette.AccentDeep.copy(alpha = 0.55f) else Color.Transparent,
             contentColor = IptvPalette.TextPrimary,
             focusedContainerColor = FocusStyle.Fill,
             focusedContentColor = IptvPalette.TextPrimary,
+            disabledContainerColor = if (playing) IptvPalette.AccentDeep.copy(alpha = 0.55f) else Color.Transparent,
+            disabledContentColor = IptvPalette.TextPrimary,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         modifier = modifier

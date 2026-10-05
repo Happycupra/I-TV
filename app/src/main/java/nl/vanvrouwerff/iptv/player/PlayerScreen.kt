@@ -9,19 +9,26 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.Composable
@@ -30,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,8 +53,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,17 +71,21 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import nl.vanvrouwerff.iptv.ui.common.MinimumTouchTargetSize
 
-@OptIn(UnstableApi::class, ExperimentalTvMaterial3Api::class)
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     playerProvider: () -> ExoPlayer?,
@@ -99,6 +114,7 @@ fun PlayerScreen(
     onStartOver: () -> Unit = {},
     onControlsInteraction: () -> Unit = {},
     onSurfaceTap: () -> Unit = {},
+    onOpenChannelList: () -> Unit = {},
     onSelectChannelGroup: (Int) -> Unit = {},
     onZapFromList: (ChannelGroup, nl.vanvrouwerff.iptv.data.Channel) -> Unit = { _, _ -> },
     onPlayerViewReady: (PlayerView) -> Unit,
@@ -113,6 +129,7 @@ fun PlayerScreen(
     onCancelNextEpisode: () -> Unit,
 ) {
     var playerViewHandle by remember { mutableStateOf<PlayerView?>(null) }
+    val surfaceTap by rememberUpdatedState(onSurfaceTap)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -170,7 +187,7 @@ fun PlayerScreen(
                 // When a Compose overlay panel opens, release focus from the PlayerView so
                 // the panel's first focusable Surface can grab it — otherwise D-pad input
                 // keeps hitting the Activity's onKeyDown and never reaches the panel.
-                val panelOpen = tracksOverlayVisible || channelList != null || controls != null ||
+                val panelOpen = tracksOverlayVisible || channelList?.isPreview == false || controls != null ||
                     errorState != null || nextEpisode != null
                 view.isFocusable = !panelOpen
                 view.isFocusableInTouchMode = !panelOpen
@@ -203,9 +220,17 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
+        // Handle taps above both Android views, including the subtitle view. Controls and
+        // panels drawn after this layer own their gestures, so a button tap cannot also
+        // toggle the controls underneath it.
+        Box(Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures(onTap = { surfaceTap() })
+        })
+
         // Top-left: channel info banner.
         AnimatedVisibility(
-            visible = banner != null && channelList == null,
+            visible = banner != null && channelList == null && !tracksOverlayVisible &&
+                !statsOverlayVisible && controls == null && errorState == null,
             enter = fadeIn(tween(180)) + slideInVertically(tween(200)) { -it / 3 },
             exit = fadeOut(tween(220)) + slideOutVertically(tween(220)) { -it / 3 },
             modifier = Modifier.align(Alignment.TopStart),
@@ -220,7 +245,8 @@ fun PlayerScreen(
             (controllerVisible || banner != null) &&
                 numericInput.isEmpty() &&
                 !statsOverlayVisible &&
-                !tracksOverlayVisible
+                !tracksOverlayVisible &&
+                !(isCompactTouchLayout() && banner != null)
         AnimatedVisibility(
             visible = clockVisible,
             enter = fadeIn(tween(160)),
@@ -269,27 +295,35 @@ fun PlayerScreen(
                     onPreviousChannel = onPreviousChannel,
                     onStartOver = onStartOver,
                     onInteraction = onControlsInteraction,
+                    onOpenChannelList = onOpenChannelList,
                 )
             }
         }
 
-        // Live-TV channel list — left-hand side, full height.
+        // Zaps show a compact preview; explicit browsing keeps the full-height list.
         AnimatedVisibility(
-            visible = channelList != null,
+            visible = channelList != null && (!channelList.isPreview || banner != null) &&
+                !tracksOverlayVisible && !statsOverlayVisible && controls == null && errorState == null,
             enter = fadeIn(tween(160)),
             exit = fadeOut(tween(180)),
-            modifier = Modifier.align(Alignment.CenterStart),
+            modifier = Modifier.align(if (channelList?.isPreview == true) Alignment.TopStart else Alignment.CenterStart),
         ) {
             channelList?.let { ui ->
-                ChannelListOverlay(
-                    groups = ui.groups,
-                    groupIndex = ui.groupIndex,
-                    currentChannelId = ui.currentChannelId,
-                    nowByChannelId = ui.nowByChannelId,
-                    channelNumberOf = ui.channelNumberOf,
-                    onSelectGroup = onSelectChannelGroup,
-                    onZap = onZapFromList,
-                )
+                if (ui.isPreview) {
+                    banner?.let { CompactChannelPreview(it, ui, onOpenChannelList) }
+                } else {
+                    ChannelListOverlay(
+                        groups = ui.groups,
+                        groupIndex = ui.groupIndex,
+                        currentChannelId = ui.currentChannelId,
+                        nowByChannelId = ui.nowByChannelId,
+                        channelNumberOf = ui.channelNumberOf,
+                        onSelectGroup = onSelectChannelGroup,
+                        onZap = onZapFromList,
+                        interactive = true,
+                        onOpenPreview = onOpenChannelList,
+                    )
+                }
             }
         }
 
@@ -410,7 +444,7 @@ private fun SkipIntroOverlay(
         exit = fadeOut(tween(220)),
         modifier = modifier.padding(end = 48.dp, bottom = 110.dp),
     ) {
-        androidx.tv.material3.Button(
+        nl.vanvrouwerff.iptv.ui.common.TouchButton(
             onClick = {
                 playerProvider()?.seekTo(SKIP_INTRO_WINDOW_MS)
                 manuallyDismissed = true
@@ -443,10 +477,11 @@ private fun NextEpisodeOverlay(
     // Single focus target on the Play-now button. We request focus once when the overlay
     // mounts so pressing OK advances immediately without the user having to navigate.
     val focus = remember { FocusRequester() }
+    val compact = isCompactTouchLayout()
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Column(
         modifier = Modifier
-            .padding(horizontal = 48.dp, vertical = 48.dp)
+            .padding(horizontal = if (compact) 16.dp else 48.dp, vertical = if (compact) 16.dp else 48.dp)
             .width(360.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(IptvPalette.BackgroundDeep.copy(alpha = 0.92f))
@@ -478,7 +513,7 @@ private fun NextEpisodeOverlay(
             ),
         )
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onPlayNow,
                 modifier = Modifier.focusRequester(focus),
@@ -498,83 +533,116 @@ private fun NextEpisodeOverlay(
     }
 }
 
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 private fun aspectResizeMode(mode: AspectMode): Int = when (mode) {
     AspectMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     AspectMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
     AspectMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+/** A preview tap opens browsing, while remote focus stays on playback. */
 @Composable
-private fun InfoBanner(banner: BannerInfo) {
+private fun CompactChannelPreview(banner: BannerInfo, ui: ChannelListUi, onOpen: () -> Unit) {
+    val open by rememberUpdatedState(onOpen)
+    val locale = LocalConfiguration.current.locales[0]
+    val group = ui.groups.getOrNull(ui.groupIndex)
+    val neighbours = remember(group, banner.channel.id) {
+        val channels = group?.channels.orEmpty()
+        val current = channels.indexOfFirst { it.id == banner.channel.id }
+        if (current < 0 || channels.size < 2) emptyList() else {
+            listOf(channels[(current - 1 + channels.size) % channels.size], channels[(current + 1) % channels.size])
+                .distinctBy { it.id }
+        }
+    }
+    InfoBanner(
+        banner = banner,
+        modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { open() }) },
+    ) {
+        if (neighbours.isNotEmpty()) {
+            Text(
+                text = neighbours.joinToString("  ·  ") { channel ->
+                    listOfNotNull(ui.channelNumberOf(channel.id)?.let { String.format(locale, "%03d", it) }, channel.name).joinToString(" ")
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = IptvPalette.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+        Text(
+            text = stringResource(R.string.channel_list_preview_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = IptvPalette.TextTertiary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun InfoBanner(
+    banner: BannerInfo,
+    modifier: Modifier = Modifier,
+    details: @Composable ColumnScope.() -> Unit = {},
+) {
+    val compact = isCompactTouchLayout()
+    val locale = LocalConfiguration.current.locales[0]
+    val timeRange = remember(banner.nowStartMs, banner.nowStopMs, locale) {
+        val start = banner.nowStartMs
+        val stop = banner.nowStopMs
+        if (start == null || stop == null || stop <= start) null else {
+            val format = java.text.SimpleDateFormat("HH:mm", locale)
+            "${format.format(java.util.Date(start))}–${format.format(java.util.Date(stop))}"
+        }
+    }
     Row(
-        modifier = Modifier
-            .padding(horizontal = 48.dp, vertical = 32.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(IptvPalette.BackgroundDeep.copy(alpha = 0.82f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = modifier
+            .padding(horizontal = if (compact) 12.dp else 32.dp, vertical = if (compact) 12.dp else 24.dp)
+            .widthIn(max = 480.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(IptvPalette.BackgroundDeep.copy(alpha = 0.84f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (banner.channel.logoUrl != null) {
             AsyncImage(
                 model = banner.channel.logoUrl,
-                contentDescription = banner.channel.name,
+                contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(width = 64.dp, height = 48.dp).padding(end = 12.dp),
+                modifier = Modifier.size(width = 48.dp, height = 36.dp).padding(end = 8.dp),
             )
         }
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                banner.channelNumber?.let { n ->
-                    Text(
-                        text = "%03d".format(n),
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = IptvPalette.Accent,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 2.sp,
-                        ),
-                        modifier = Modifier.padding(end = 10.dp),
-                    )
-                }
-                Text(
-                    text = banner.channel.name,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        color = IptvPalette.TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(320.dp),
-                )
-            }
-            // Prefer EPG "Nu:" / "Straks:" lines over the static group-title when we have
-            // EPG data — they're the question the user actually cares about on a zap.
-            val fallback = banner.channel.groupTitle?.let(DisplayNames::clean)
-            val nowLine = banner.nowPlaying?.let { stringResource(R.string.player_banner_now, it) } ?: fallback
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = listOfNotNull(banner.channelNumber?.let { String.format(locale, "%03d", it) }, banner.channel.name).joinToString("  "),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = IptvPalette.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val nowLine = banner.nowPlaying?.let { stringResource(R.string.player_banner_now, it) }
+                ?: banner.channel.groupTitle?.let(DisplayNames::clean)
             if (!nowLine.isNullOrBlank()) {
                 Text(
-                    text = nowLine,
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        color = IptvPalette.TextSecondary,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
+                    text = listOfNotNull(timeRange, nowLine).joinToString("  ·  "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = IptvPalette.AccentSoft,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(320.dp),
                 )
             }
             if (!banner.next.isNullOrBlank()) {
                 Text(
                     text = stringResource(R.string.player_banner_next, banner.next),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = IptvPalette.TextTertiary,
-                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = IptvPalette.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(320.dp),
                 )
             }
+            details()
         }
     }
 }
@@ -685,7 +753,8 @@ private fun StatsLine(text: String) {
     )
 }
 
-@OptIn(UnstableApi::class, ExperimentalTvMaterial3Api::class)
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TracksOverlay(
     snapshot: TracksSnapshot,
@@ -697,6 +766,7 @@ private fun TracksOverlay(
     onChangeSubtitleDelay: (Long) -> Unit,
 ) {
     val firstChipFocus = remember { FocusRequester() }
+    val compact = isCompactTouchLayout()
     LaunchedEffect(Unit) {
         // Pull focus into the panel as soon as it appears; without this DPAD events
         // never reach the subtitle / audio rows — they fall through to the Activity.
@@ -704,12 +774,14 @@ private fun TracksOverlay(
     }
     Column(
         modifier = Modifier
-            .padding(horizontal = 32.dp, vertical = 32.dp)
+            .padding(horizontal = if (compact) 8.dp else 32.dp, vertical = if (compact) 8.dp else 32.dp)
             .width(360.dp)
             .fillMaxHeight()
             .clip(RoundedCornerShape(18.dp))
             .background(IptvPalette.BackgroundDeep.copy(alpha = 0.92f))
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+            // Fixed-height track lists remain bounded inside this scrollable panel.
     ) {
         // Aspect ratio quick-toggle — top block because it's the one control users hit most.
         Text(
@@ -874,6 +946,17 @@ private fun SubtitleDelaySlider(
     var focused by remember { mutableStateOf(false) }
     val clamped = valueMs.coerceIn(0L, maxMs)
     val fraction = clamped.toFloat() / maxMs.toFloat()
+    if (!LocalContext.current.isTelevision()) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.player_subtitle_delay) + " · " + formatDelayMs(clamped))
+            androidx.compose.material3.Slider(
+                value = fraction,
+                onValueChange = { onChange(((it * maxMs).toLong() / stepMs) * stepMs) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTargetSize),
+            )
+        }
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1042,7 +1125,7 @@ private fun AspectChip(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ErrorOverlay(
+internal fun ErrorOverlay(
     state: ErrorState,
     onRetry: () -> Unit,
     onSkip: () -> Unit,
@@ -1063,7 +1146,10 @@ private fun ErrorOverlay(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
                 text = stringResource(R.string.player_error_title),
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -1082,7 +1168,10 @@ private fun ErrorOverlay(
                 style = MaterialTheme.typography.bodySmall.copy(color = IptvPalette.TextTertiary),
             )
             Spacer(Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(onClick = onRetry, modifier = Modifier.focusRequester(retryFocus)) {
                     Text(
                         stringResource(R.string.player_error_retry),
@@ -1114,4 +1203,5 @@ data class ChannelListUi(
     val currentChannelId: String?,
     val nowByChannelId: Map<String, NowInfo>,
     val channelNumberOf: (String) -> Int?,
+    val isPreview: Boolean = false,
 )

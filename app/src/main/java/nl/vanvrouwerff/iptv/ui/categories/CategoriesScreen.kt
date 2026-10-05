@@ -24,7 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -59,7 +60,7 @@ fun CategoriesScreen(
 ) {
     LaunchedEffect(type, initialCategory) { vm.load(type, initialCategory) }
     val state by vm.state.collectAsState()
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     BackHandler(enabled = true, onBack = onBack)
 
     val selectedFocus = remember { FocusRequester() }
@@ -94,7 +95,17 @@ fun CategoriesScreen(
             ),
         )
         Spacer(Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxSize()) {
+        if (compactScreen) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                itemsIndexed(state.categories, key = { _, category -> category }) { _, category ->
+                    Box(Modifier.width(200.dp)) {
+                        CategoryItem(DisplayNames.clean(category), category == state.selected, { vm.select(category) })
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            CategoryContent(state, type, onOpen, Modifier.fillMaxSize())
+        } else Row(modifier = Modifier.fillMaxSize()) {
             val selectedIndex = state.categories.indexOf(state.selected).coerceAtLeast(0)
             val listState = remember(state.categories.isNotEmpty()) {
                 androidx.compose.foundation.lazy.LazyListState(selectedIndex, 0)
@@ -122,9 +133,21 @@ fun CategoriesScreen(
                 }
             }
             Spacer(Modifier.width(if (compactScreen) 8.dp else 24.dp))
+            CategoryContent(state, type, onOpen, Modifier.weight(1f).fillMaxHeight())
+        }
+    }
+}
+
+@Composable
+private fun CategoryContent(
+    state: CategoryBrowseState,
+    type: ContentType,
+    onOpen: (Channel, List<Channel>) -> Unit,
+    modifier: Modifier,
+) {
             val playable = remember(state.items) { state.items.filter { it.streamUrl != null } }
             if (!state.loading && state.items.isEmpty()) {
-                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Box(modifier, contentAlignment = Alignment.Center) {
                     Text(
                         text = stringResource(R.string.categories_empty),
                         style = MaterialTheme.typography.titleMedium,
@@ -134,12 +157,12 @@ fun CategoriesScreen(
             } else androidx.compose.runtime.key(state.selected) {
                 LazyVerticalGrid(
                     columns = when {
-                        compactScreen && type == ContentType.TV -> GridCells.Adaptive(150.dp)
-                        compactScreen -> GridCells.Adaptive(132.dp)
+                        isCompactTouchLayout() && type == ContentType.TV -> GridCells.Adaptive(150.dp)
+                        isCompactTouchLayout() -> GridCells.Adaptive(132.dp)
                         type == ContentType.TV -> GridCells.Adaptive(220.dp)
                         else -> GridCells.Adaptive(168.dp)
                     },
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    modifier = modifier,
                     contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp, start = 12.dp, end = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -160,6 +183,4 @@ fun CategoriesScreen(
                     }
                 }
             }
-        }
-    }
 }

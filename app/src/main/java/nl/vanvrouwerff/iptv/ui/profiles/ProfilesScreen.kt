@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package nl.vanvrouwerff.iptv.ui.profiles
 
 import androidx.activity.compose.BackHandler
@@ -8,6 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,7 +40,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import nl.vanvrouwerff.iptv.ui.common.isCompactTouchLayout
+import nl.vanvrouwerff.iptv.ui.common.isTelevision
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
@@ -44,11 +52,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
+import nl.vanvrouwerff.iptv.ui.common.TouchSurface as Surface
 import androidx.tv.material3.Text
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
@@ -62,22 +70,27 @@ fun ProfilesScreen(
     vm: ProfilesViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
-    val compactScreen = LocalConfiguration.current.screenWidthDp < 600
+    val compactScreen = isCompactTouchLayout()
     var pendingDelete by remember { mutableStateOf<ProfileRow?>(null) }
 
     Box(modifier = Modifier.fillMaxSize().background(IptvPalette.BackgroundDeep)) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .imePadding()
                     .padding(
                         horizontal = if (compactScreen) 16.dp else 48.dp,
                         vertical = if (compactScreen) 16.dp else 32.dp,
                     ),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
+                // A phone keyboard can leave only a small landscape viewport. Let the
+                // editor use that space instead of reserving a fixed page header above it.
+                if (!compactScreen || state.editing == null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = stringResource(R.string.profiles_title),
+                        modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.headlineLarge.copy(
                             color = IptvPalette.TextPrimary,
                             fontWeight = FontWeight.Black,
@@ -97,6 +110,8 @@ fun ProfilesScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = IptvPalette.TextSecondary,
                 )
+
+                }
 
                 val defaultNameFormat = stringResource(R.string.profiles_default_new_name)
                 val editing = state.editing
@@ -162,16 +177,24 @@ private fun ProfileRowCard(
     onEdit: () -> Unit,
     onDelete: (() -> Unit)?,
 ) {
-    // The select surface, Rename, and Delete are siblings in a Row — not nested inside
-    // one clickable parent. On Android TV a clickable tv.material3 Surface absorbs D-pad
-    // focus as a single unit, which previously made the inline Rename/Delete buttons
-    // unreachable: pressing OK on the card always fired onSelect and navigated away.
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Surface(
+    if (isCompactTouchLayout()) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ProfileSelection(row, onSelect, Modifier.fillMaxWidth())
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileActions(onEdit, onDelete)
+            }
+        }
+    } else {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ProfileSelection(row, onSelect, Modifier.weight(1f))
+            ProfileActions(onEdit, onDelete)
+        }
+    }
+}
+
+@Composable
+private fun ProfileSelection(row: ProfileRow, onSelect: () -> Unit, modifier: Modifier) {
+    Surface(
             onClick = onSelect,
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
             colors = ClickableSurfaceDefaults.colors(
@@ -181,8 +204,7 @@ private fun ProfileRowCard(
                 focusedContentColor = IptvPalette.TextPrimary,
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-            modifier = Modifier
-                .weight(1f)
+            modifier = modifier
                 .then(
                     if (row.isActive)
                         Modifier.border(2.dp, IptvPalette.Accent, RoundedCornerShape(14.dp))
@@ -230,6 +252,10 @@ private fun ProfileRowCard(
                 }
             }
         }
+}
+
+@Composable
+private fun ProfileActions(onEdit: () -> Unit, onDelete: (() -> Unit)?) {
         Button(onClick = onEdit) {
             Text(
                 stringResource(R.string.profiles_rename),
@@ -244,7 +270,6 @@ private fun ProfileRowCard(
                 )
             }
         }
-    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -319,6 +344,7 @@ private fun EditingPanel(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(IptvPalette.SurfaceElevated)
+            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -339,7 +365,7 @@ private fun EditingPanel(
             // Done on the on-screen keyboard commits the rename directly. Without this
             // the user has to dismiss the IME (which hides Save), navigate D-pad to the
             // Save button, and click it — an easy flow to lose your edit in.
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, showKeyboardOnFocus = false),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, showKeyboardOnFocus = !LocalContext.current.isTelevision()),
             keyboardActions = KeyboardActions(onDone = { onSave() }),
             modifier = Modifier.fillMaxWidth().tvKeyboardOnOk(),
         )
@@ -461,7 +487,7 @@ private fun DeleteConfirmPanel(
     val cancelFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
     Column(
-        modifier = modifier,
+        modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(

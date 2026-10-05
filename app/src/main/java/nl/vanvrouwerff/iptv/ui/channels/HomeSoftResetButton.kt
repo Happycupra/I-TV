@@ -10,13 +10,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
+import nl.vanvrouwerff.iptv.ui.common.TouchButton as Button
 import androidx.tv.material3.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,22 +40,22 @@ fun HomeSoftResetButton() {
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
 
+    val stage = progress?.let { "${it.stage}: ${it.count}" }.orEmpty()
+    val noErrorMessage = stringResource(R.string.playlist_health_no_error)
+    val healthDetail = stringResource(
+        R.string.playlist_health_detail,
+        liveCount, movieCount, seriesCount, failureStreak,
+        lastError.ifBlank { noErrorMessage }, stage,
+    )
+    val resetDoneMessage by rememberUpdatedState(stringResource(R.string.settings_soft_reset_done))
+    val recoveryPreservedMessage by rememberUpdatedState(stringResource(R.string.playlist_recovery_preserved))
+
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Button(onClick = {
-            val stage = progress?.let { "${it.stage}: ${it.count}" } ?: ""
-            val detail = context.getString(
-                R.string.playlist_health_detail,
-                liveCount,
-                movieCount,
-                seriesCount,
-                failureStreak,
-                if (lastError.isBlank()) context.getString(R.string.playlist_health_no_error) else lastError,
-                stage,
-            )
-            Toast.makeText(context, detail, Toast.LENGTH_LONG).show()
+            Toast.makeText(context, healthDetail, Toast.LENGTH_LONG).show()
         }) {
             Text(
                 text = when {
@@ -80,10 +81,7 @@ fun HomeSoftResetButton() {
                     }
                     Toast.makeText(
                         context,
-                        context.getString(
-                            if (result.isSuccess) R.string.settings_soft_reset_done
-                            else R.string.playlist_recovery_preserved,
-                        ),
+                        if (result.isSuccess) resetDoneMessage else recoveryPreservedMessage,
                         Toast.LENGTH_SHORT,
                     ).show()
                     running = false

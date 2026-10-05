@@ -7,10 +7,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import java.util.Calendar
-import java.util.Locale
 import kotlinx.coroutines.delay
 import nl.vanvrouwerff.iptv.R
 import nl.vanvrouwerff.iptv.ui.theme.IptvPalette
@@ -28,7 +28,8 @@ internal fun RefreshCountdown(hour: Int) {
     val h = seconds / 3_600L
     val m = (seconds % 3_600L) / 60L
     val s = seconds % 60L
-    val value = String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
+    val locale = LocalConfiguration.current.locales[0]
+    val value = String.format(locale, "%02d:%02d:%02d", h, m, s)
     Text(
         text = stringResource(R.string.settings_auto_refresh_countdown, value),
         style = MaterialTheme.typography.bodySmall,

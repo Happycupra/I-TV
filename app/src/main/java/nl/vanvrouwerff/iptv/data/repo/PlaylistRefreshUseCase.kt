@@ -2,6 +2,7 @@ package nl.vanvrouwerff.iptv.data.repo
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,11 +14,14 @@ import nl.vanvrouwerff.iptv.data.ContentType
 import nl.vanvrouwerff.iptv.data.db.CategoryEntity
 import nl.vanvrouwerff.iptv.data.db.ChannelDao
 import nl.vanvrouwerff.iptv.data.db.toEntity
+import nl.vanvrouwerff.iptv.data.db.ProgrammeEntity
+import nl.vanvrouwerff.iptv.data.epg.ExternalXmltvLoader
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
 import nl.vanvrouwerff.iptv.data.settings.SettingsStore
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
 import nl.vanvrouwerff.iptv.data.xtream.CategoryFilter
 import java.security.MessageDigest
+import java.util.Locale
 
 /**
  * Resilient catalogue coordinator. Each content type is committed independently, suspicious
@@ -27,9 +31,18 @@ class PlaylistRefreshUseCase(
     private val settings: SettingsStore,
     private val dao: ChannelDao,
     private val onCatalogueChanged: () -> Unit = {},
+    private val repositoryFactory: (SourceConfig, String) -> PlaylistRepository = ::defaultRepository,
+    private val externalEpgLoader: suspend (String, Set<String>) -> List<ProgrammeEntity> = { url, keys -> ExternalXmltvLoader().fetch(url, keys) },
 ) {
     private val mutex = Mutex()
     private val epgMutex = Mutex()
+    @Volatile private var completedCatalogueRuns = 0L
+    private var completedCatalogueKey: String? = null
+    private var completedCatalogueConfig: SourceConfig? = null
+    private var completedCatalogueFilter: String? = null
+    private var completedCatalogueResult: Result<Unit> = Result.success(Unit)
+    private var completedEpgResult: Result<Unit> = Result.success(Unit)
+    private var completedEpgConfig: EpgConfiguration? = null
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
@@ -37,67 +50,156 @@ class PlaylistRefreshUseCase(
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
     private val _progress = MutableStateFlow<ImportProgress?>(null)
     val progress: StateFlow<ImportProgress?> = _progress.asStateFlow()
+    private val _refreshingEpg = MutableStateFlow(false)
+    val refreshingEpg: StateFlow<Boolean> = _refreshingEpg.asStateFlow()
+    private val _lastEpgError = MutableStateFlow<String?>(null)
+    val lastEpgError: StateFlow<String?> = _lastEpgError.asStateFlow()
 
     suspend operator fun invoke(force: Boolean = false, onCatalogueReady: () -> Unit = {}): Result<Unit> {
-        if (!mutex.tryLock()) {
-            mutex.withLock { }
-            onCatalogueReady()
-            return _lastError.value?.let { Result.failure(IllegalStateException(it)) } ?: Result.success(Unit)
-        }
-        try {
-            _refreshing.value = true
-            _lastError.value = null
-            val result = withContext(Dispatchers.IO) { runCatching { refresh(force, onCatalogueReady) } }
-            result.exceptionOrNull()?.let { err ->
-                val safe = safeError(err)
-                Log.w(TAG, "Refresh failed; known-good catalogue retained where possible", err)
-                _lastError.value = safe
-                if (err !is PartialRefreshException) settings.markProviderFailure(safe)
+        val runsAtRequest = completedCatalogueRuns
+        return mutex.withLock {
+            val currentConfig = settings.sourceConfig.first()
+            val requestedFilter = settings.categoryFilter.first()
+            val requestedKey = currentConfig?.let { catalogueSourceKey(it, requestedFilter) }
+            if (completedCatalogueRuns != runsAtRequest && completedCatalogueKey == requestedKey &&
+                completedCatalogueConfig == currentConfig && completedCatalogueFilter == requestedFilter) {
+                onCatalogueReady()
+                return@withLock completedCatalogueResult
             }
-            return result
-        } finally {
-            _refreshing.value = false
-            _progress.value = null
-            mutex.unlock()
+            try {
+                _refreshing.value = true
+                _lastError.value = null
+                var completedKey: String? = null
+                var importedConfig: SourceConfig? = currentConfig
+                var importedFilter = requestedFilter
+                val result = withContext(Dispatchers.IO) {
+                    runCatchingCancellable {
+                        // A settings save can arrive while the previous provider is still downloading.
+                        // Discard its pending sections and import the latest configuration in this run.
+                        for (attempt in 0 until 3) {
+                            val config = settings.sourceConfig.first() ?: error("Keine Quelle konfiguriert.")
+                            val filter = settings.categoryFilter.first()
+                            importedConfig = config
+                            importedFilter = filter
+                            try {
+                                refresh(force, config, filter, onCatalogueReady)
+                                completedKey = catalogueSourceKey(config, filter)
+                                return@runCatchingCancellable
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                val changed = settings.sourceConfig.first() != config || settings.categoryFilter.first() != filter
+                                if (!changed) throw error
+                                if (attempt == 2) throw SourceConfigurationChangedException()
+                            }
+                        }
+                    }
+                }
+                result.exceptionOrNull()?.let { err ->
+                    val safe = safeError(err)
+                    Log.w(TAG, "Refresh failed; known-good catalogue retained where possible", err)
+                    _lastError.value = safe
+                    if (err !is PartialRefreshException && err !is SourceConfigurationChangedException) settings.markProviderFailure(safe)
+                }
+                completedCatalogueKey = completedKey ?: requestedKey
+                completedCatalogueConfig = importedConfig
+                completedCatalogueFilter = importedFilter
+                completedCatalogueResult = result
+                completedCatalogueRuns++
+                result
+            } finally {
+                _refreshing.value = false
+                _progress.value = null
+            }
         }
     }
 
-    suspend fun refreshEpg(): Result<Unit> {
-        if (mutex.isLocked || !epgMutex.tryLock()) return Result.success(Unit)
+    suspend fun refreshEpg(force: Boolean = false): Result<Unit> {
+        if (!epgMutex.tryLock()) {
+            epgMutex.withLock { }
+            val currentSource = settings.sourceConfig.first()
+            val currentEpgConfig = currentSource?.let { EpgConfiguration(it, settings.categoryFilter.first(), settings.externalEpgUrl.first()) }
+            if (completedEpgResult.exceptionOrNull() is CancellationException ||
+                completedEpgConfig != currentEpgConfig) {
+                return refreshEpg(force)
+            }
+            return completedEpgResult
+        }
         return try {
+            _refreshingEpg.value = true
             withContext(Dispatchers.IO) {
-                runCatching {
-                    val config = settings.sourceConfig.first() ?: return@runCatching
-                    val filter = settings.categoryFilter.first()
-                    writeEpg(repository(config, filter))
-                }.onFailure { Log.w(TAG, "EPG refresh failed; existing EPG retained", it) }
-            }
-        } finally { epgMutex.unlock() }
+                runCatchingCancellable {
+                    mutex.withLock {
+                        val config = settings.sourceConfig.first() ?: throw EpgUnavailableException("Keine Quelle konfiguriert.")
+                        val filter = settings.categoryFilter.first()
+                        val epgConfig = EpgConfiguration(config, filter, settings.externalEpgUrl.first())
+                        completedEpgConfig = epgConfig
+                        val last = settings.lastEpgRefreshAt.first()
+                        val age = System.currentTimeMillis() - last
+                        if (!force && last != 0L && age in 0 until EPG_MAX_AGE_MS) return@withLock
+                        _lastEpgError.value = null
+                        val catalogueKey = settings.catalogueSourceKey.first()
+                        val sameLegacySource = settings.catalogueVersion.first() > 0 &&
+                            catalogueKey == legacyCatalogueSourceKey(config)
+                        if (catalogueKey.isNotBlank() && catalogueKey != catalogueSourceKey(config, filter) && !sameLegacySource) {
+                            error("Bitte zuerst die Senderliste für die geänderte Quelle aktualisieren.")
+                        }
+                        writeEpg(repositoryFactory(config, filter), epgConfig)
+                    }
+                }.onFailure {
+                    _lastEpgError.value = safeError(it)
+                    Log.w(TAG, "EPG refresh failed; existing EPG retained")
+                }
+            }.also { completedEpgResult = it }
+        } catch (cancelled: CancellationException) {
+            completedEpgResult = Result.failure(cancelled)
+            throw cancelled
+        } finally {
+            _refreshingEpg.value = false
+            epgMutex.unlock()
+        }
     }
 
-    private suspend fun writeEpg(repo: PlaylistRepository) {
+    private suspend fun writeEpg(repo: PlaylistRepository, config: EpgConfiguration) {
         val keys = dao.liveEpgKeys().toHashSet()
-        if (keys.isEmpty()) return
-        val programmes = repo.fetchProgrammes(keys) ?: return
-        if (programmes.isEmpty()) return
-        dao.replaceProgrammes(programmes)
-        settings.markEpgRefresh()
+        if (keys.isEmpty()) throw EpgUnavailableException("Für diese Sender sind keine EPG-Kennungen vorhanden.")
+        val programmes = if (config.externalUrl.isNotBlank()) externalEpgLoader(config.externalUrl, keys) else {
+            repo.fetchProgrammes(keys) ?: throw EpgUnavailableException("Diese Quelle enthält keine EPG-Adresse (url-tvg/x-tvg-url).")
+        }
+        if (programmes.isEmpty()) {
+            if (config.externalUrl.isNotBlank()) error("Keine passenden EPG-Sendungen: Die XMLTV-Sender-IDs müssen mit den Senderkennungen der Liste übereinstimmen. Der bisherige Stand bleibt erhalten.")
+            error("Der Anbieter hat keine passenden EPG-Sendungen geliefert. Der bisherige Stand bleibt erhalten.")
+        }
+        commitEpg(programmes, config)
         Log.i(TAG, "EPG refreshed: ${programmes.size} programmes")
     }
 
-    private suspend fun refresh(force: Boolean, onCatalogueReady: () -> Unit) {
-        val config = settings.sourceConfig.first() ?: error("Keine Quelle konfiguriert.")
-        val filter = settings.categoryFilter.first()
-        val repo = repository(config, filter)
-        val currentSourceKey = sourceKey(config)
-        val storedSourceKey = settings.catalogueSourceKey.first()
-        val sourceChanged = storedSourceKey.isNotBlank() && storedSourceKey != currentSourceKey
+    private suspend fun commitEpg(programmes: List<ProgrammeEntity>, config: EpgConfiguration) {
+        dao.replaceProgrammesIfCurrent(programmes) { ensureCurrentEpgConfiguration(config) }
+        if (!settings.markEpgRefreshIfCurrent(config.source, config.filter, config.externalUrl)) {
+            ensureCurrentEpgConfiguration(config)
+            throw EpgConfigurationChangedException()
+        }
+        _lastEpgError.value = null
+    }
 
-        val etag = if (force) null else settings.playlistEtag.first()
-        val lastMod = if (force) null else settings.playlistLastModified.first()
+    private suspend fun refresh(force: Boolean, config: SourceConfig, filter: String, onCatalogueReady: () -> Unit) {
+        val repo = repositoryFactory(config, filter)
+        val initialEpgUrl = settings.externalEpgUrl.first()
+        val currentSourceKey = catalogueSourceKey(config, filter)
+        val storedSourceKey = settings.catalogueSourceKey.first()
+        // Adding the filter to the key is a format upgrade, not an intentional source change.
+        // A settings save invalidates the catalogue version, distinguishing an explicit edit.
+        val sameLegacySource = settings.catalogueVersion.first() > 0 &&
+            storedSourceKey == legacyCatalogueSourceKey(config)
+        val sourceChanged = storedSourceKey.isNotBlank() && storedSourceKey != currentSourceKey && !sameLegacySource
+
+        val etag = if (force || sourceChanged) null else settings.playlistEtag.first()
+        val lastMod = if (force || sourceChanged) null else settings.playlistLastModified.first()
         val sectionErrors = mutableListOf<String>()
         var readySignalled = false
         var acceptedAny = false
+        var liveAccepted = false
 
         fun signalReady() {
             if (!readySignalled) {
@@ -110,7 +212,9 @@ class PlaylistRefreshUseCase(
             etag = etag,
             lastModified = lastMod,
             onProgress = { _progress.value = it },
+            includeEpg = initialEpgUrl.isBlank(),
             onSectionReady = { section ->
+                ensureCurrentConfiguration(config, filter)
                 if (!section.successful) {
                     sectionErrors += "${label(section.type)}: ${section.error ?: "Fehler"}"
                     return@fetch
@@ -138,19 +242,27 @@ class PlaylistRefreshUseCase(
                     .mapIndexed { i, (name, type) -> CategoryEntity(name, name, i, type) }
                 _progress.value = ImportProgress(ImportProgress.Stage.Saving, entities.size)
                 dao.replaceType(section.type.name, entities, categories)
+                ensureCurrentConfiguration(config, filter)
                 settings.markSectionSuccess(section.type.name, entities.size)
                 acceptedAny = true
+                if (section.type == ContentType.TV) liveAccepted = true
                 onCatalogueChanged()
                 if (section.type == ContentType.TV || !readySignalled) signalReady()
                 Log.i(TAG, "Committed ${section.type}: ${entities.size} rows; old other partitions untouched")
             },
         )
+        ensureCurrentConfiguration(config, filter)
 
         if (snapshot.notModified) {
             settings.markRefreshSuccess()
             settings.markProviderRecovered()
             signalReady()
-            epgMutex.withLock { runCatching { writeEpg(repo) } }
+            val epgConfig = EpgConfiguration(config, filter, settings.externalEpgUrl.first())
+            runCatchingCancellable { writeEpg(repo, epgConfig) }.onFailure {
+                if (it is SourceConfigurationChangedException) throw it
+                _lastEpgError.value = safeError(it)
+            }
+            ensureCurrentConfiguration(config, filter)
             return
         }
 
@@ -161,10 +273,25 @@ class PlaylistRefreshUseCase(
         }
         signalReady()
 
-        if (snapshot.programmes.isNotEmpty()) {
-            dao.replaceProgrammes(snapshot.programmes)
-            settings.markEpgRefresh()
+        if (liveAccepted) {
+            val epgConfig = EpgConfiguration(config, filter, settings.externalEpgUrl.first())
+            runCatchingCancellable {
+                if (epgConfig.externalUrl.isNotBlank() || initialEpgUrl.isNotBlank()) {
+                    // Read the latest EPG setting after the catalogue is accepted. Provider data
+                    // must never overwrite an override, including one saved during this import.
+                    writeEpg(repo, epgConfig)
+                } else if (snapshot.programmes.isNotEmpty()) {
+                    commitEpg(snapshot.programmes, epgConfig)
+                } else {
+                    _lastEpgError.value = snapshot.epgError
+                        ?: "Der Anbieter hat keine passenden EPG-Sendungen geliefert. Der bisherige Stand bleibt erhalten."
+                }
+            }.onFailure {
+                if (it is SourceConfigurationChangedException) throw it
+                _lastEpgError.value = safeError(it)
+            }
         }
+        ensureCurrentConfiguration(config, filter)
 
         if (sectionErrors.isEmpty()) {
             settings.markRefreshSuccess()
@@ -176,24 +303,15 @@ class PlaylistRefreshUseCase(
         }
     }
 
-    private fun repository(config: SourceConfig, categoryFilter: String): PlaylistRepository = when (config) {
-        is SourceConfig.M3u -> M3uPlaylistRepository(config.url, HttpClient.okHttp)
-        is SourceConfig.Xtream -> XtreamPlaylistRepository(
-            config.host,
-            config.username,
-            config.password,
-            CategoryFilter.parse(categoryFilter),
-        )
+    private suspend fun ensureCurrentConfiguration(config: SourceConfig, filter: String) {
+        if (settings.sourceConfig.first() != config || settings.categoryFilter.first() != filter) {
+            throw SourceConfigurationChangedException()
+        }
     }
 
-    private fun sourceKey(config: SourceConfig): String {
-        val raw = when (config) {
-            is SourceConfig.M3u -> "m3u|${config.url.trim()}"
-            is SourceConfig.Xtream -> "xtream|${config.host.trim().trimEnd('/')}|${config.username.trim()}"
-        }
-        return MessageDigest.getInstance("SHA-256")
-            .digest(raw.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+    private suspend fun ensureCurrentEpgConfiguration(config: EpgConfiguration) {
+        ensureCurrentConfiguration(config.source, config.filter)
+        if (settings.externalEpgUrl.first() != config.externalUrl) throw EpgConfigurationChangedException()
     }
 
     private fun safeError(t: Throwable): String = HttpClient.redact(
@@ -207,10 +325,40 @@ class PlaylistRefreshUseCase(
     }
 
     private class PartialRefreshException(message: String) : IllegalStateException(message)
+    private class SourceConfigurationChangedException : IllegalStateException("Die Quelle wurde während der Aktualisierung geändert.")
+    private class EpgConfigurationChangedException : IllegalStateException("Die EPG-Adresse wurde während der Aktualisierung geändert. Bitte erneut synchronisieren.")
+    private data class EpgConfiguration(val source: SourceConfig, val filter: String, val externalUrl: String)
 
     companion object {
         private const val TAG = "PlaylistRefresh"
-        const val CATALOGUE_VERSION = 16
+        const val CATALOGUE_VERSION = 17
         const val EPG_MAX_AGE_MS: Long = 6L * 3_600_000L
+
+        private fun defaultRepository(config: SourceConfig, categoryFilter: String): PlaylistRepository = when (config) {
+            is SourceConfig.M3u -> M3uPlaylistRepository(config.url, HttpClient.okHttp)
+            is SourceConfig.Xtream -> XtreamPlaylistRepository(config.host, config.username, config.password, CategoryFilter.parse(categoryFilter))
+        }
+
+        internal fun catalogueSourceKey(config: SourceConfig, categoryFilter: String): String {
+            val raw = when (config) {
+                is SourceConfig.M3u -> "m3u|${config.url.trim()}"
+                is SourceConfig.Xtream -> {
+                    val filter = categoryFilter.split(',', ';', ' ').map { it.trim().uppercase(Locale.ROOT) }
+                        .filter { it.isNotBlank() }.distinct().sorted().joinToString(",")
+                    "xtream|${config.host.trim().trimEnd('/')}|${config.username.trim()}|filter=$filter"
+                }
+            }
+            return MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+        }
+
+        internal fun legacyCatalogueSourceKey(config: SourceConfig): String {
+            val raw = when (config) {
+                is SourceConfig.M3u -> "m3u|${config.url.trim()}"
+                is SourceConfig.Xtream -> "xtream|${config.host.trim().trimEnd('/')}|${config.username.trim()}"
+            }
+            return MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+        }
     }
 }
