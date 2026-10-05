@@ -256,7 +256,7 @@
     <string name="channel_list_uncategorized">Sonstige</string>
     <string name="channel_list_count">Liste %1$d von %2$d · %3$d Sender</string>
     <string name="channel_list_hint">◀▶ Kategorie · OK Umschalten · GELB Steuerung · ZURÜCK Schließen</string>
-    <string name="channel_list_preview_hint">OK Senderliste öffnen · ZURÜCK Schließen</string>
+    <string name="channel_list_preview_hint">OK / Tippen: Senderliste · ZURÜCK: Schließen</string>
     <string name="guide_title">TV-Programm</string>
     <string name="guide_open">Programm</string>
     <string name="guide_no_data">Keine Programmdaten</string>
@@ -339,4 +339,8 @@
     <string name="favorites_hint_touch_add">Antippen zum Hinzufügen oder Entfernen</string>
     <string name="player_load_failed">Die Wiedergabe konnte nicht gestartet werden. Bitte erneut versuchen.</string>
     <string name="settings_save_failed">Die Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.</string>
+    <string name="settings_epg_external_url">Externe EPG-Adresse (optional)</string>
+    <string name="settings_epg_external_hint">Kostenlose XMLTV- oder XMLTV.gz-Adresse eintragen und mit „EPG synchronisieren“ übernehmen. Leer lassen, um das Anbieter-EPG zu nutzen. Die Senderkennungen müssen zu deiner Senderliste passen.</string>
+    <string name="settings_epg_invalid_url">Bitte eine gültige HTTP- oder HTTPS-Adresse für die Programmdaten eingeben.</string>
+    <string name="settings_epg_save_source_first">Bitte die geänderte Senderquelle zuerst mit „Speichern“ übernehmen.</string>
 </resources>

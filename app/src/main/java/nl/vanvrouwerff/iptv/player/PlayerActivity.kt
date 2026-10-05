@@ -100,12 +100,8 @@ class PlayerActivity : ComponentActivity() {
 
     // Overlay state wired into the Compose layer. Mutated from onKeyDown / Player.Listener
     // so the UI updates without us having to push through a StateFlow for every tick.
-    private var bannerChannel by mutableStateOf<Channel?>(null)
     /** Compose-observable ContentType of the currently playing item; drives Skip Intro. */
     private var currentChannelType by mutableStateOf<ContentType?>(null)
-    private var bannerNowPlaying by mutableStateOf<String?>(null)
-    private var bannerNext by mutableStateOf<String?>(null)
-    private var bannerChannelNumber by mutableStateOf<Int?>(null)
     private var numericInput by mutableStateOf("")
     private var errorOverlay by mutableStateOf<ErrorState?>(null)
     private var tracksOverlayVisible by mutableStateOf(false)
@@ -119,6 +115,7 @@ class PlayerActivity : ComponentActivity() {
     private var subtitleDelayMs by mutableStateOf(0L)
     private var displayedCues by mutableStateOf<List<Cue>>(emptyList())
 
+    private val bannerPresentation by lazy { InfoBannerPresentation<BannerInfo>(lifecycleScope) }
     private var bannerJob: Job? = null
     private var numericJob: Job? = null
     private var autoRetryJob: Job? = null
@@ -181,12 +178,13 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             val channelListMode by channelListPresentation.mode.collectAsState()
+            val banner by bannerPresentation.banner.collectAsState()
             androidx.activity.compose.BackHandler(
                 enabled = channelListMode != ChannelListMode.HIDDEN || tracksOverlayVisible ||
                     statsOverlayVisible || controlsVisible || liveReturn != null,
             ) {
                 when {
-                    channelListMode != ChannelListMode.HIDDEN -> channelListPresentation.close()
+                    channelListMode != ChannelListMode.HIDDEN -> closeChannelList()
                     tracksOverlayVisible -> tracksOverlayVisible = false
                     statsOverlayVisible -> statsOverlayVisible = false
                     controlsVisible -> hideControls()
@@ -198,14 +196,7 @@ class PlayerActivity : ComponentActivity() {
                     PlayerScreen(
                         playerProvider = { player },
                         aspectMode = aspectMode,
-                        banner = bannerChannel?.let {
-                            BannerInfo(
-                                channel = it,
-                                nowPlaying = bannerNowPlaying,
-                                next = bannerNext,
-                                channelNumber = bannerChannelNumber,
-                            )
-                        },
+                        banner = banner,
                         numericInput = numericInput,
                         errorState = errorOverlay,
                         tracksOverlayVisible = tracksOverlayVisible,
@@ -216,6 +207,7 @@ class PlayerActivity : ComponentActivity() {
                         onSeekBy = ::seekBy,
                         onOpenTracks = {
                             hideControls()
+                            closeChannelList()
                             tracksOverlayVisible = true
                         },
                         onFromStart = {
@@ -238,7 +230,7 @@ class PlayerActivity : ComponentActivity() {
                         onSurfaceTap = {
                             when {
                                 errorOverlay != null -> Unit
-                                channelListMode != ChannelListMode.HIDDEN -> channelListPresentation.close()
+                                channelListMode != ChannelListMode.HIDDEN -> closeChannelList()
                                 tracksOverlayVisible -> tracksOverlayVisible = false
                                 statsOverlayVisible -> statsOverlayVisible = false
                                 controlsVisible -> hideControls()
@@ -339,7 +331,7 @@ class PlayerActivity : ComponentActivity() {
         channelListNow = emptyMap()
         channelListNowGroup = null
         channelListNowLoadedAtMs = 0L
-        channelListPresentation.close()
+        closeChannelList()
         loadJob?.cancel()
         loadJob = lifecycleScope.launch {
             val queueReference = intent.getStringExtra(EPISODE_QUEUE_REFERENCE_EXTRA)
@@ -429,7 +421,6 @@ class PlayerActivity : ComponentActivity() {
         val resume = pendingResumeMs
         pendingResumeMs = 0L
         initPlayer(resume)
-        channels.getOrNull(currentIndex)?.let(::showBanner)
         if (playingChannel?.type == ContentType.TV) loadLiveIndex()
     }
 
@@ -563,6 +554,7 @@ class PlayerActivity : ComponentActivity() {
                 // Fall through: pop a full-screen overlay rather than a Toast — on TV a
                 // 2-line toast in the corner is easy to miss, and the user then sits
                 // staring at a black screen wondering whether to touch anything.
+                closeChannelList()
                 errorOverlay = ErrorState(
                     channelName = channel?.name.orEmpty(),
                     message = HttpClient.redact(error.message ?: error.errorCodeName),
@@ -622,7 +614,7 @@ class PlayerActivity : ComponentActivity() {
             IptvApp.get().settings.lastEpgRefreshAt.distinctUntilChanged().collect {
                 playingChannel?.let(::loadLiveProgramme)
                 channelListNowLoadedAtMs = 0L
-                if (channelListPresentation.mode.value != ChannelListMode.HIDDEN) refreshChannelListNow()
+                if (channelListPresentation.mode.value == ChannelListMode.BROWSING) refreshChannelListNow()
             }
         }
     }
@@ -736,6 +728,7 @@ class PlayerActivity : ComponentActivity() {
             p.setMediaItem(MediaItem.fromUri(url))
         }
         p.prepare()
+        showBanner(channel)
         val app = IptvApp.get()
         val profileId = app.activeProfileId.value
         if (Catchup.isCatchupId(channel.id)) return
@@ -799,7 +792,6 @@ class PlayerActivity : ComponentActivity() {
         liveReturn = null
         channels = list
         playChannel(index)
-        channels.getOrNull(index)?.let(::showBanner)
     }
 
     private fun retryCurrent() {
@@ -926,28 +918,24 @@ class PlayerActivity : ComponentActivity() {
             (currentIndex + delta).takeIf { it in channels.indices } ?: return
         }
         playChannel(next)
-        showBanner(channels[next])
     }
 
     private fun zapToChannelId(id: String) {
         val inList = channels.indexOfFirst { it.id == id }
         if (inList >= 0) {
             playChannel(inList)
-            showBanner(channels[inList])
             return
         }
         val numbered = numberedChannels.indexOfFirst { it.id == id }
         if (numbered >= 0) {
             channels = numberedChannels
             playChannel(numbered)
-            showBanner(channels[numbered])
             return
         }
         lifecycleScope.launch {
             val ch = withContext(Dispatchers.IO) { dao.getChannelsByIds(listOf(id)) }.firstOrNull()?.toDomain() ?: return@launch
             channels = listOf(ch)
             playChannel(0)
-            showBanner(ch)
             loadLiveIndex()
         }
     }
@@ -962,7 +950,6 @@ class PlayerActivity : ComponentActivity() {
             index = numbered
         }
         playChannel(index)
-        showBanner(channels[index])
     }
 
     private fun jumpToChannelNumber(n: Int) {
@@ -970,19 +957,16 @@ class PlayerActivity : ComponentActivity() {
         // switch the zap list to it so ▲▼ continue from the chosen number.
         if (numberedChannels.isNotEmpty() && channels.getOrNull(currentIndex)?.type == ContentType.TV) {
             if (n < 1 || n > numberedChannels.size) return
-            val target = numberedChannels[n - 1]
             if (channels !== numberedChannels) {
                 val currentId = channels.getOrNull(currentIndex)?.id
                 channels = numberedChannels
                 currentIndex = numberedChannels.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
             }
             playChannel(n - 1)
-            showBanner(target)
             return
         }
         if (n < 1 || n > channels.size) return
         playChannel(n - 1)
-        showBanner(channels[n - 1])
     }
 
     /**
@@ -1004,6 +988,7 @@ class PlayerActivity : ComponentActivity() {
                 }
             }.getOrElse { error ->
                 Log.w(TAG, "Could not load optional channel list", error)
+                // Keep the independent current-channel info if only list loading failed.
                 channelListPresentation.close()
                 return@launch
             }
@@ -1016,7 +1001,9 @@ class PlayerActivity : ComponentActivity() {
             numberById = built.second
             channelGroups = built.third
             channels.getOrNull(currentIndex)?.let { current ->
-                if (bannerChannel?.id == current.id) bannerChannelNumber = numberById[current.id]
+                bannerPresentation.updateCurrent { banner ->
+                    if (banner.channel.id == current.id) banner.copy(channelNumber = numberById[current.id]) else banner
+                }
             }
             if (channelListPresentation.mode.value != ChannelListMode.HIDDEN) {
                 positionChannelList()
@@ -1029,8 +1016,11 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showChannelList(preview: Boolean) {
-        if (preview && channelListPresentation.mode.value == ChannelListMode.BROWSING) return
-        if (preview) channelListPresentation.preview() else channelListPresentation.browse()
+        if (preview && hasManualOverlay()) return
+        if (preview) channelListPresentation.preview() else {
+            hideBanner()
+            channelListPresentation.browse()
+        }
         if (channelGroups.isEmpty()) {
             loadLiveIndex()
             return
@@ -1049,11 +1039,13 @@ class PlayerActivity : ComponentActivity() {
             containing >= 0 -> containing
             else -> 0
         }
-        controlsVisible = false
-        tracksOverlayVisible = false
-        statsOverlayVisible = false
-        bannerChannel = null
-        refreshChannelListNow()
+        if (channelListPresentation.mode.value == ChannelListMode.BROWSING) {
+            controlsVisible = false
+            tracksOverlayVisible = false
+            statsOverlayVisible = false
+            hideBanner()
+            refreshChannelListNow()
+        }
     }
 
     private fun selectChannelGroup(index: Int) {
@@ -1099,36 +1091,45 @@ class PlayerActivity : ComponentActivity() {
         playChannel(index)
     }
 
-    /** Show the info banner for `ch` and auto-hide after BANNER_MS. */
-    private fun showBanner(ch: Channel) {
-        bannerChannel = ch
-        bannerChannelNumber = numberById[ch.id] ?: (currentIndex + 1)
-        // Start empty so the banner pops immediately; the EPG lookup populates async and
-        // the UI updates in-place. A single Room hit per zap is negligible next to the
-        // player prepare() cost and gives the user a real "Nu:" line instead of stale.
-        bannerNowPlaying = null
-        bannerNext = null
+    private fun hasManualOverlay(): Boolean =
+        channelListPresentation.mode.value == ChannelListMode.BROWSING || controlsVisible ||
+            tracksOverlayVisible || statsOverlayVisible || errorOverlay != null || nextEpisodeInfo != null
+
+    private fun hideBanner() {
         bannerJob?.cancel()
+        bannerJob = null
+        bannerPresentation.dismiss()
+    }
+
+    private fun closeChannelList() {
+        channelListPresentation.close()
+        hideBanner()
+    }
+
+    /** Metadata loading never extends the four-second deadline or changes manual panels. */
+    private fun showBanner(ch: Channel) {
+        hideBanner()
+        if (hasManualOverlay()) return
+        val request = bannerPresentation.show(
+            BannerInfo(ch, null, null, numberById[ch.id] ?: (currentIndex + 1)),
+        )
         val epgKey = ch.epgChannelId
+        if (epgKey.isNullOrBlank()) return
         bannerJob = lifecycleScope.launch {
-            if (!epgKey.isNullOrBlank()) {
-                val now = System.currentTimeMillis()
-                val programmes = runCatchingCancellable {
-                    withContext(Dispatchers.IO) {
-                        dao.getNowPlayingFor(epgKey, now) to dao.getNextProgrammeFor(epgKey, now)
-                    }
-                }.onFailure { Log.w(TAG, "Could not load optional banner EPG", it) }.getOrNull()
-                // Only push the update if the banner is still showing the same channel —
-                // otherwise a rapid CH+/CH- could stamp stale data on the new channel.
-                if (bannerChannel?.id == ch.id) {
-                    bannerNowPlaying = programmes?.first?.title
-                    bannerNext = programmes?.second?.title
+            val now = System.currentTimeMillis()
+            val programmes = runCatchingCancellable {
+                withContext(Dispatchers.IO) {
+                    dao.getNowPlayingFor(epgKey, now) to dao.getNextProgrammeFor(epgKey, now)
                 }
+            }.onFailure { Log.w(TAG, "Could not load optional banner EPG", it) }.getOrNull()
+            bannerPresentation.update(request) {
+                it.copy(
+                    nowPlaying = programmes?.first?.title,
+                    nowStartMs = programmes?.first?.startMs,
+                    nowStopMs = programmes?.first?.stopMs,
+                    next = programmes?.second?.title,
+                )
             }
-            delay(BANNER_MS)
-            bannerChannel = null
-            bannerNowPlaying = null
-            bannerNext = null
         }
     }
 
@@ -1218,7 +1219,7 @@ class PlayerActivity : ComponentActivity() {
         }
         val digit = keyCode - KeyEvent.KEYCODE_0
         if (digit in 0..9) {
-            channelListPresentation.close()
+            closeChannelList()
             tracksOverlayVisible = false
             statsOverlayVisible = false
             errorOverlay = null
@@ -1242,7 +1243,7 @@ class PlayerActivity : ComponentActivity() {
         }
         if (channelListPresentation.mode.value != ChannelListMode.HIDDEN &&
             (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE)) {
-            channelListPresentation.close()
+            closeChannelList()
             playerViewRef?.requestFocus()
             return true
         }
@@ -1327,6 +1328,7 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_CHANNEL_DOWN -> { channelStep(-1); true }
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (isLive) channelStep(-1) else {
+                    hideBanner()
                     tracksOverlayVisible = true
                     statsOverlayVisible = false
                 }
@@ -1361,11 +1363,13 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_SETTINGS,
             -> {
+                closeChannelList()
                 tracksOverlayVisible = !tracksOverlayVisible
                 statsOverlayVisible = false
                 true
             }
             KeyEvent.KEYCODE_PROG_BLUE -> {
+                closeChannelList()
                 statsOverlayVisible = !statsOverlayVisible
                 if (statsOverlayVisible) statsSnapshot = snapshotStats()
                 tracksOverlayVisible = false
@@ -1390,7 +1394,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showControls() {
-        channelListPresentation.close()
+        closeChannelList()
         controlsFocusToken++
         controlsVisible = true
         bumpControlsTimer()
@@ -1534,11 +1538,8 @@ class PlayerActivity : ComponentActivity() {
         controlsVisible = false
         tracksOverlayVisible = false
         statsOverlayVisible = false
-        channelListPresentation.close()
+        closeChannelList()
         numericInput = ""
-        bannerChannel = null
-        bannerNowPlaying = null
-        bannerNext = null
         liveProgramme = null
         playerViewRef?.player = null
         val stoppedPlayer = player
@@ -1575,9 +1576,7 @@ class PlayerActivity : ComponentActivity() {
         private const val PROGRESS_SAVE_INTERVAL_MS = 15_000L
         private const val STATS_INTERVAL_MS = 1_000L
         private const val FINISH_THRESHOLD_MS = 30_000L
-        /** How long the channel-info banner stays on screen after a zap. */
         private const val CONTROLS_TIMEOUT_MS = 5_000L
-        private const val BANNER_MS = 3_200L
         private const val CHANNEL_LIST_EPG_CACHE_MS = 30_000L
         /** Idle time before a partially-typed channel number auto-commits. */
         private const val NUMERIC_COMMIT_MS = 1_500L
@@ -1597,6 +1596,8 @@ data class BannerInfo(
     val nowPlaying: String?,
     val next: String?,
     val channelNumber: Int?,
+    val nowStartMs: Long? = null,
+    val nowStopMs: Long? = null,
 )
 
 /**

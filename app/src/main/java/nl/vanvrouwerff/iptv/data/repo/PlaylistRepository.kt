@@ -34,6 +34,8 @@ interface PlaylistRepository {
         etag: String?,
         lastModified: String?,
         onProgress: (ImportProgress) -> Unit = {},
+        /** An external EPG override makes the provider's feed unnecessary. */
+        includeEpg: Boolean = true,
         /** Called as soon as a partition is available, so Live can land before VOD/series. */
         onSectionReady: suspend (PlaylistSectionResult) -> Unit = {},
     ): PlaylistSnapshot

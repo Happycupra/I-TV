@@ -17,6 +17,7 @@ import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +80,18 @@ class M3uEpgRepositoryTest {
         assertEquals(1, snapshot.channels.size)
         assertEquals(0, snapshot.programmes.size)
         assertNull(repository.fetchProgrammes(setOf("news")))
+    }
+
+    @Test fun `catalogue loading can omit an unused provider EPG feed`() = runBlocking {
+        serve("/list.m3u", "#EXTM3U x-tvg-url=\"/guide.xml\"\n#EXTINF:-1 tvg-id=\"news\",News\n$baseUrl/live.ts".toByteArray())
+        serve("/guide.xml", xml.toByteArray())
+        val repository = M3uPlaylistRepository("$baseUrl/list.m3u", OkHttpClient())
+        val snapshot = repository.fetch(null, null, includeEpg = false)
+        assertEquals(1, snapshot.channels.size)
+        assertTrue(snapshot.programmes.isEmpty())
+        assertEquals(1, server.requestCount)
+        assertEquals(1, repository.fetchProgrammes(setOf("news"))!!.size)
+        assertEquals(2, server.requestCount)
     }
 
     @Test fun `cancelling an EPG body transfer returns before the delayed body arrives`() = runBlocking {

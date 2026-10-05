@@ -26,6 +26,7 @@ class M3uPlaylistRepository(
         etag: String?,
         lastModified: String?,
         onProgress: (ImportProgress) -> Unit,
+        includeEpg: Boolean,
         onSectionReady: suspend (PlaylistSectionResult) -> Unit,
     ): PlaylistSnapshot = withContext(Dispatchers.IO) {
         val snapshot = retryProviderCall("M3U") {
@@ -75,7 +76,7 @@ class M3uPlaylistRepository(
                 )
             }
         }
-        if (snapshot.notModified) return@withContext snapshot
+        if (snapshot.notModified || !includeEpg) return@withContext snapshot
         val keys = snapshot.channels.mapNotNullTo(HashSet()) { it.epgChannelId }
         var epgError: String? = null
         val programmes = if (keys.isEmpty()) emptyList() else runCatchingCancellable {

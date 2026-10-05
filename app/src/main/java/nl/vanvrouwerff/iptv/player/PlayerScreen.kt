@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.Composable
@@ -55,6 +57,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -226,7 +229,8 @@ fun PlayerScreen(
 
         // Top-left: channel info banner.
         AnimatedVisibility(
-            visible = banner != null && channelList == null,
+            visible = banner != null && channelList == null && !tracksOverlayVisible &&
+                !statsOverlayVisible && controls == null && errorState == null,
             enter = fadeIn(tween(180)) + slideInVertically(tween(200)) { -it / 3 },
             exit = fadeOut(tween(220)) + slideOutVertically(tween(220)) { -it / 3 },
             modifier = Modifier.align(Alignment.TopStart),
@@ -241,7 +245,8 @@ fun PlayerScreen(
             (controllerVisible || banner != null) &&
                 numericInput.isEmpty() &&
                 !statsOverlayVisible &&
-                !tracksOverlayVisible
+                !tracksOverlayVisible &&
+                !(isCompactTouchLayout() && banner != null)
         AnimatedVisibility(
             visible = clockVisible,
             enter = fadeIn(tween(160)),
@@ -295,25 +300,30 @@ fun PlayerScreen(
             }
         }
 
-        // Live-TV channel list — left-hand side, full height.
+        // Zaps show a compact preview; explicit browsing keeps the full-height list.
         AnimatedVisibility(
-            visible = channelList != null,
+            visible = channelList != null && (!channelList.isPreview || banner != null) &&
+                !tracksOverlayVisible && !statsOverlayVisible && controls == null && errorState == null,
             enter = fadeIn(tween(160)),
             exit = fadeOut(tween(180)),
-            modifier = Modifier.align(Alignment.CenterStart),
+            modifier = Modifier.align(if (channelList?.isPreview == true) Alignment.TopStart else Alignment.CenterStart),
         ) {
             channelList?.let { ui ->
-                ChannelListOverlay(
-                    groups = ui.groups,
-                    groupIndex = ui.groupIndex,
-                    currentChannelId = ui.currentChannelId,
-                    nowByChannelId = ui.nowByChannelId,
-                    channelNumberOf = ui.channelNumberOf,
-                    onSelectGroup = onSelectChannelGroup,
-                    onZap = onZapFromList,
-                    interactive = !ui.isPreview,
-                    onOpenPreview = onOpenChannelList,
-                )
+                if (ui.isPreview) {
+                    banner?.let { CompactChannelPreview(it, ui, onOpenChannelList) }
+                } else {
+                    ChannelListOverlay(
+                        groups = ui.groups,
+                        groupIndex = ui.groupIndex,
+                        currentChannelId = ui.currentChannelId,
+                        nowByChannelId = ui.nowByChannelId,
+                        channelNumberOf = ui.channelNumberOf,
+                        onSelectGroup = onSelectChannelGroup,
+                        onZap = onZapFromList,
+                        interactive = true,
+                        onOpenPreview = onOpenChannelList,
+                    )
+                }
             }
         }
 
@@ -530,76 +540,109 @@ private fun aspectResizeMode(mode: AspectMode): Int = when (mode) {
     AspectMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+/** A preview tap opens browsing, while remote focus stays on playback. */
 @Composable
-private fun InfoBanner(banner: BannerInfo) {
+private fun CompactChannelPreview(banner: BannerInfo, ui: ChannelListUi, onOpen: () -> Unit) {
+    val open by rememberUpdatedState(onOpen)
+    val locale = LocalConfiguration.current.locales[0]
+    val group = ui.groups.getOrNull(ui.groupIndex)
+    val neighbours = remember(group, banner.channel.id) {
+        val channels = group?.channels.orEmpty()
+        val current = channels.indexOfFirst { it.id == banner.channel.id }
+        if (current < 0 || channels.size < 2) emptyList() else {
+            listOf(channels[(current - 1 + channels.size) % channels.size], channels[(current + 1) % channels.size])
+                .distinctBy { it.id }
+        }
+    }
+    InfoBanner(
+        banner = banner,
+        modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { open() }) },
+    ) {
+        if (neighbours.isNotEmpty()) {
+            Text(
+                text = neighbours.joinToString("  ·  ") { channel ->
+                    listOfNotNull(ui.channelNumberOf(channel.id)?.let { String.format(locale, "%03d", it) }, channel.name).joinToString(" ")
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = IptvPalette.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+        Text(
+            text = stringResource(R.string.channel_list_preview_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = IptvPalette.TextTertiary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun InfoBanner(
+    banner: BannerInfo,
+    modifier: Modifier = Modifier,
+    details: @Composable ColumnScope.() -> Unit = {},
+) {
+    val compact = isCompactTouchLayout()
+    val locale = LocalConfiguration.current.locales[0]
+    val timeRange = remember(banner.nowStartMs, banner.nowStopMs, locale) {
+        val start = banner.nowStartMs
+        val stop = banner.nowStopMs
+        if (start == null || stop == null || stop <= start) null else {
+            val format = java.text.SimpleDateFormat("HH:mm", locale)
+            "${format.format(java.util.Date(start))}–${format.format(java.util.Date(stop))}"
+        }
+    }
     Row(
-        modifier = Modifier
-            .padding(horizontal = 48.dp, vertical = 32.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(IptvPalette.BackgroundDeep.copy(alpha = 0.82f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = modifier
+            .padding(horizontal = if (compact) 12.dp else 32.dp, vertical = if (compact) 12.dp else 24.dp)
+            .widthIn(max = 480.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(IptvPalette.BackgroundDeep.copy(alpha = 0.84f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (banner.channel.logoUrl != null) {
             AsyncImage(
                 model = banner.channel.logoUrl,
-                contentDescription = banner.channel.name,
+                contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(width = 64.dp, height = 48.dp).padding(end = 12.dp),
+                modifier = Modifier.size(width = 48.dp, height = 36.dp).padding(end = 8.dp),
             )
         }
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                banner.channelNumber?.let { n ->
-                    Text(
-                        text = "%03d".format(n),
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = IptvPalette.Accent,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 2.sp,
-                        ),
-                        modifier = Modifier.padding(end = 10.dp),
-                    )
-                }
-                Text(
-                    text = banner.channel.name,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        color = IptvPalette.TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(320.dp),
-                )
-            }
-            // Prefer EPG "Nu:" / "Straks:" lines over the static group-title when we have
-            // EPG data — they're the question the user actually cares about on a zap.
-            val fallback = banner.channel.groupTitle?.let(DisplayNames::clean)
-            val nowLine = banner.nowPlaying?.let { stringResource(R.string.player_banner_now, it) } ?: fallback
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = listOfNotNull(banner.channelNumber?.let { String.format(locale, "%03d", it) }, banner.channel.name).joinToString("  "),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = IptvPalette.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val nowLine = banner.nowPlaying?.let { stringResource(R.string.player_banner_now, it) }
+                ?: banner.channel.groupTitle?.let(DisplayNames::clean)
             if (!nowLine.isNullOrBlank()) {
                 Text(
-                    text = nowLine,
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        color = IptvPalette.TextSecondary,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
+                    text = listOfNotNull(timeRange, nowLine).joinToString("  ·  "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = IptvPalette.AccentSoft,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(320.dp),
                 )
             }
             if (!banner.next.isNullOrBlank()) {
                 Text(
                     text = stringResource(R.string.player_banner_next, banner.next),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = IptvPalette.TextTertiary,
-                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = IptvPalette.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(320.dp),
                 )
             }
+            details()
         }
     }
 }

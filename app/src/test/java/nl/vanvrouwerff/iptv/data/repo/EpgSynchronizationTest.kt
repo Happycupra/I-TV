@@ -45,6 +45,7 @@ class EpgSynchronizationTest {
         settings.saveM3u("https://provider.test/original.m3u")
         settings.setCategoryFilter("")
         settings.setCatalogueSourceKey("")
+        settings.setExternalEpgUrl("")
         settings.markEpgRefresh(0)
         dao.insertChannels(listOf(channel("news").toEntity(0)))
         dao.insertProgrammes(listOf(original))
@@ -212,6 +213,196 @@ class EpgSynchronizationTest {
         assertEquals(1, repo.epgCalls)
     }
 
+    @Test fun `external URL edits invalidate only EPG freshness while identical saves retain it`() = runBlocking {
+        settings.setExternalEpgUrl("https://epg.test/guide.xml")
+        settings.markRefreshSuccess(42)
+        settings.setCatalogueVersion(17)
+        settings.markEpgRefresh(43)
+        settings.setExternalEpgUrl(" https://epg.test/guide.xml ")
+        assertEquals(43L, settings.lastEpgRefreshAt.first())
+        settings.setExternalEpgUrl("https://epg.test/new.xml")
+        assertEquals(0L, settings.lastEpgRefreshAt.first())
+        assertEquals(42L, settings.lastRefreshSuccessAt.first())
+        assertEquals(17, settings.catalogueVersion.first())
+    }
+
+    @Test fun `a configuration change during EPG insertion rolls the entire replacement back`() = runBlocking {
+        settings.setExternalEpgUrl("https://epg.test/old.xml")
+        var checks = 0
+        val result = runCatching {
+            dao.replaceProgrammesIfCurrent(listOf(original.copy(title = "Obsolete programme"))) {
+                checks++
+                if (checks == 2) settings.setExternalEpgUrl("https://epg.test/new.xml")
+                check(settings.externalEpgUrl.first() == "https://epg.test/old.xml") { "EPG configuration changed" }
+            }
+        }
+        assertTrue(result.isFailure)
+        assertEquals(2, checks)
+        assertEquals(original, dao.getNowPlayingFor("news", 1_500))
+        assertEquals(0L, settings.lastEpgRefreshAt.first())
+    }
+
+    @Test fun `successful EPG timestamps are written only for the current source filter and URL`() = runBlocking {
+        val source = settings.sourceConfig.first()!!
+        settings.setExternalEpgUrl("https://epg.test/new.xml")
+        assertFalse(settings.markEpgRefreshIfCurrent(source, "", "https://epg.test/old.xml", 42))
+        assertFalse(settings.markEpgRefreshIfCurrent(source, "NL", "https://epg.test/new.xml", 42))
+        assertFalse(settings.markEpgRefreshIfCurrent(SourceConfig.M3u("https://other.test/list.m3u"), "", "https://epg.test/new.xml", 42))
+        assertEquals(0L, settings.lastEpgRefreshAt.first())
+        assertTrue(settings.markEpgRefreshIfCurrent(source, "", "https://epg.test/new.xml", 43))
+        assertEquals(43L, settings.lastEpgRefreshAt.first())
+    }
+
+    @Test fun `external URL belongs to its provider but survives a category filter edit`() = runBlocking {
+        settings.setExternalEpgUrl("https://epg.test/guide.xml")
+        settings.saveSource(settings.sourceConfig.first()!!, "NL")
+        assertEquals("https://epg.test/guide.xml", settings.externalEpgUrl.first())
+        settings.saveM3u("https://new-provider.test/list.m3u")
+        assertEquals("", settings.externalEpgUrl.first())
+    }
+
+    @Test fun `manual external EPG synchronization bypasses the provider feed`() = runBlocking {
+        settings.setExternalEpgUrl("https://epg.test/guide.xml")
+        val repo = FakeRepository()
+        var externalCalls = 0
+        val useCase = PlaylistRefreshUseCase(settings, dao, repositoryFactory = { _, _ -> repo }, externalEpgLoader = { url, keys ->
+            assertEquals("https://epg.test/guide.xml", url)
+            assertEquals(setOf("news"), keys)
+            externalCalls++
+            listOf(original.copy(title = "External programme"))
+        })
+        assertTrue(useCase.refreshEpg(force = true).isSuccess)
+        assertEquals(0, repo.epgCalls)
+        assertEquals(1, externalCalls)
+        assertEquals("External programme", dao.getNowPlayingFor("news", 1_500)?.title)
+    }
+
+    @Test fun `catalogue and not-modified refreshes keep the external EPG override authoritative`() = runBlocking {
+        settings.setExternalEpgUrl("https://epg.test/guide.xml")
+        val repo = FakeRepository().apply { snapshotProgrammes = listOf(original.copy(title = "Provider programme")) }
+        var externalCalls = 0
+        val useCase = PlaylistRefreshUseCase(settings, dao, repositoryFactory = { _, _ -> repo }, externalEpgLoader = { _, _ ->
+            externalCalls++
+            listOf(original.copy(title = "External programme"))
+        })
+        assertTrue(useCase(force = true).isSuccess)
+        assertEquals("External programme", dao.getNowPlayingFor("news", 1_500)?.title)
+        assertEquals(listOf(false), repo.includeEpgRequests)
+        repo.notModified = true
+        assertTrue(useCase().isSuccess)
+        assertEquals("External programme", dao.getNowPlayingFor("news", 1_500)?.title)
+        assertEquals(2, externalCalls)
+        assertEquals(0, repo.epgCalls)
+    }
+
+    @Test fun `an external feed without matching IDs preserves the cached EPG and reports the mismatch`() = runBlocking {
+        settings.setExternalEpgUrl("https://epg.test/guide.xml")
+        settings.markEpgRefresh(42)
+        val useCase = PlaylistRefreshUseCase(settings, dao, repositoryFactory = { _, _ -> FakeRepository() }, externalEpgLoader = { _, _ -> emptyList() })
+        assertTrue(useCase.refreshEpg(force = true).isFailure)
+        assertEquals(original, dao.getNowPlayingFor("news", 1_500))
+        assertEquals(42L, settings.lastEpgRefreshAt.first())
+        assertTrue(useCase.lastEpgError.value!!.contains("XMLTV-Sender-IDs"))
+    }
+
+    @Test fun `changing the external URL during a transfer discards its result and a waiting sync uses the new URL`() = runBlocking {
+        withTimeout(10_000) {
+            settings.setExternalEpgUrl("https://epg.test/old.xml")
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val newStarted = CompletableDeferred<Unit>()
+            val releaseNew = CompletableDeferred<Unit>()
+            val repo = FakeRepository()
+            val useCase = PlaylistRefreshUseCase(settings, dao, repositoryFactory = { _, _ -> repo }, externalEpgLoader = { url, _ ->
+                if (url.endsWith("old.xml")) {
+                    started.complete(Unit)
+                    release.await()
+                } else {
+                    newStarted.complete(Unit)
+                    releaseNew.await()
+                }
+                listOf(original.copy(title = url))
+            })
+            val old = async { useCase.refreshEpg(force = true) }
+            started.await()
+            settings.setExternalEpgUrl("https://epg.test/new.xml")
+            val current = async(start = CoroutineStart.UNDISPATCHED) { useCase.refreshEpg(force = true) }
+            release.complete(Unit)
+            assertTrue(old.await().isFailure)
+            newStarted.await()
+            assertEquals(original, dao.getNowPlayingFor("news", 1_500))
+            assertEquals(0L, settings.lastEpgRefreshAt.first())
+            releaseNew.complete(Unit)
+            assertTrue(current.await().isSuccess)
+            assertEquals("https://epg.test/new.xml", dao.getNowPlayingFor("news", 1_500)?.title)
+            assertEquals(0, repo.epgCalls)
+        }
+    }
+
+    @Test fun `saving an external URL during catalogue download prevents provider programmes from overwriting it`() = runBlocking {
+        withTimeout(10_000) {
+            val repo = FakeRepository().apply {
+                catalogueGate = CompletableDeferred()
+                snapshotProgrammes = listOf(original.copy(title = "Provider programme"))
+            }
+            val useCase = PlaylistRefreshUseCase(settings, dao, repositoryFactory = { _, _ -> repo }, externalEpgLoader = { _, _ -> listOf(original.copy(title = "External programme")) })
+            val catalogue = async { useCase(force = true) }
+            repo.catalogueStarted.await()
+            settings.setExternalEpgUrl("https://epg.test/guide.xml")
+            repo.catalogueGate!!.complete(Unit)
+            assertTrue(catalogue.await().isSuccess)
+            assertEquals("External programme", dao.getNowPlayingFor("news", 1_500)?.title)
+        }
+    }
+
+    @Test fun `cancelling a waiting external synchronization does not cancel the active transfer`() = runBlocking {
+        withTimeout(10_000) {
+            settings.setExternalEpgUrl("https://epg.test/guide.xml")
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var externalCalls = 0
+            val useCase = PlaylistRefreshUseCase(settings, dao, externalEpgLoader = { _, _ ->
+                externalCalls++
+                started.complete(Unit)
+                release.await()
+                listOf(original.copy(title = "External programme"))
+            })
+            val leader = async { useCase.refreshEpg(force = true) }
+            started.await()
+            val waiter = async(start = CoroutineStart.UNDISPATCHED) { useCase.refreshEpg(force = true) }
+            waiter.cancelAndJoin()
+            assertTrue(useCase.refreshingEpg.value)
+            release.complete(Unit)
+            assertTrue(leader.await().isSuccess)
+            assertEquals(1, externalCalls)
+            assertEquals("External programme", dao.getNowPlayingFor("news", 1_500)?.title)
+        }
+    }
+
+    @Test fun `a waiting external synchronization takes over if the active caller is cancelled`() = runBlocking {
+        withTimeout(10_000) {
+            settings.setExternalEpgUrl("https://epg.test/guide.xml")
+            val started = CompletableDeferred<Unit>()
+            val neverReleased = CompletableDeferred<Unit>()
+            var externalCalls = 0
+            val useCase = PlaylistRefreshUseCase(settings, dao, externalEpgLoader = { _, _ ->
+                externalCalls++
+                if (externalCalls == 1) {
+                    started.complete(Unit)
+                    neverReleased.await()
+                }
+                listOf(original.copy(title = "External programme"))
+            })
+            val leader = async { useCase.refreshEpg(force = true) }
+            started.await()
+            val waiter = async(start = CoroutineStart.UNDISPATCHED) { useCase.refreshEpg(force = true) }
+            leader.cancelAndJoin()
+            assertTrue(waiter.await().isSuccess)
+            assertEquals(2, externalCalls)
+            assertEquals("External programme", dao.getNowPlayingFor("news", 1_500)?.title)
+        }
+    }
+
     private class FakeRepository : PlaylistRepository {
         var catalogueRows = listOf(channel("news"))
         var epgRows = listOf(ProgrammeEntity("news", 1_000, 2_000, "Fresh programme", null))
@@ -222,13 +413,18 @@ class EpgSynchronizationTest {
         val epgStarted = CompletableDeferred<Unit>()
         var catalogueCalls = 0
         var epgCalls = 0
+        var snapshotProgrammes = emptyList<ProgrammeEntity>()
+        var notModified = false
+        val includeEpgRequests = mutableListOf<Boolean>()
 
-        override suspend fun fetch(etag: String?, lastModified: String?, onProgress: (ImportProgress) -> Unit, onSectionReady: suspend (PlaylistSectionResult) -> Unit): PlaylistSnapshot {
+        override suspend fun fetch(etag: String?, lastModified: String?, onProgress: (ImportProgress) -> Unit, includeEpg: Boolean, onSectionReady: suspend (PlaylistSectionResult) -> Unit): PlaylistSnapshot {
             catalogueCalls++
+            includeEpgRequests += includeEpg
             catalogueStarted.complete(Unit)
             catalogueGate?.await()
+            if (notModified) return PlaylistSnapshot(channels = emptyList(), notModified = true)
             onSectionReady(PlaylistSectionResult(ContentType.TV, catalogueRows))
-            return PlaylistSnapshot(channels = catalogueRows)
+            return PlaylistSnapshot(channels = catalogueRows, programmes = snapshotProgrammes)
         }
 
         override suspend fun fetchProgrammes(epgKeys: Set<String>): List<ProgrammeEntity> {

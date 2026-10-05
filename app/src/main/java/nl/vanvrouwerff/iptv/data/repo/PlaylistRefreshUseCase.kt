@@ -14,6 +14,8 @@ import nl.vanvrouwerff.iptv.data.ContentType
 import nl.vanvrouwerff.iptv.data.db.CategoryEntity
 import nl.vanvrouwerff.iptv.data.db.ChannelDao
 import nl.vanvrouwerff.iptv.data.db.toEntity
+import nl.vanvrouwerff.iptv.data.db.ProgrammeEntity
+import nl.vanvrouwerff.iptv.data.epg.ExternalXmltvLoader
 import nl.vanvrouwerff.iptv.data.remote.HttpClient
 import nl.vanvrouwerff.iptv.data.settings.SettingsStore
 import nl.vanvrouwerff.iptv.data.settings.SourceConfig
@@ -30,6 +32,7 @@ class PlaylistRefreshUseCase(
     private val dao: ChannelDao,
     private val onCatalogueChanged: () -> Unit = {},
     private val repositoryFactory: (SourceConfig, String) -> PlaylistRepository = ::defaultRepository,
+    private val externalEpgLoader: suspend (String, Set<String>) -> List<ProgrammeEntity> = { url, keys -> ExternalXmltvLoader().fetch(url, keys) },
 ) {
     private val mutex = Mutex()
     private val epgMutex = Mutex()
@@ -39,8 +42,7 @@ class PlaylistRefreshUseCase(
     private var completedCatalogueFilter: String? = null
     private var completedCatalogueResult: Result<Unit> = Result.success(Unit)
     private var completedEpgResult: Result<Unit> = Result.success(Unit)
-    private var completedEpgConfig: SourceConfig? = null
-    private var completedEpgFilter: String? = null
+    private var completedEpgConfig: EpgConfiguration? = null
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
@@ -115,8 +117,10 @@ class PlaylistRefreshUseCase(
     suspend fun refreshEpg(force: Boolean = false): Result<Unit> {
         if (!epgMutex.tryLock()) {
             epgMutex.withLock { }
+            val currentSource = settings.sourceConfig.first()
+            val currentEpgConfig = currentSource?.let { EpgConfiguration(it, settings.categoryFilter.first(), settings.externalEpgUrl.first()) }
             if (completedEpgResult.exceptionOrNull() is CancellationException ||
-                completedEpgConfig != settings.sourceConfig.first() || completedEpgFilter != settings.categoryFilter.first()) {
+                completedEpgConfig != currentEpgConfig) {
                 return refreshEpg(force)
             }
             return completedEpgResult
@@ -126,21 +130,21 @@ class PlaylistRefreshUseCase(
             withContext(Dispatchers.IO) {
                 runCatchingCancellable {
                     mutex.withLock {
+                        val config = settings.sourceConfig.first() ?: throw EpgUnavailableException("Keine Quelle konfiguriert.")
+                        val filter = settings.categoryFilter.first()
+                        val epgConfig = EpgConfiguration(config, filter, settings.externalEpgUrl.first())
+                        completedEpgConfig = epgConfig
                         val last = settings.lastEpgRefreshAt.first()
                         val age = System.currentTimeMillis() - last
                         if (!force && last != 0L && age in 0 until EPG_MAX_AGE_MS) return@withLock
                         _lastEpgError.value = null
-                        val config = settings.sourceConfig.first() ?: throw EpgUnavailableException("Keine Quelle konfiguriert.")
-                        val filter = settings.categoryFilter.first()
-                        completedEpgConfig = config
-                        completedEpgFilter = filter
                         val catalogueKey = settings.catalogueSourceKey.first()
                         val sameLegacySource = settings.catalogueVersion.first() > 0 &&
                             catalogueKey == legacyCatalogueSourceKey(config)
                         if (catalogueKey.isNotBlank() && catalogueKey != catalogueSourceKey(config, filter) && !sameLegacySource) {
                             error("Bitte zuerst die Senderliste für die geänderte Quelle aktualisieren.")
                         }
-                        writeEpg(repositoryFactory(config, filter), config, filter)
+                        writeEpg(repositoryFactory(config, filter), epgConfig)
                     }
                 }.onFailure {
                     _lastEpgError.value = safeError(it)
@@ -156,22 +160,32 @@ class PlaylistRefreshUseCase(
         }
     }
 
-    private suspend fun writeEpg(repo: PlaylistRepository, config: SourceConfig, filter: String) {
+    private suspend fun writeEpg(repo: PlaylistRepository, config: EpgConfiguration) {
         val keys = dao.liveEpgKeys().toHashSet()
         if (keys.isEmpty()) throw EpgUnavailableException("Für diese Sender sind keine EPG-Kennungen vorhanden.")
-        val programmes = repo.fetchProgrammes(keys)
-            ?: throw EpgUnavailableException("Diese Quelle enthält keine EPG-Adresse (url-tvg/x-tvg-url).")
-        if (programmes.isEmpty()) error("Der Anbieter hat keine passenden EPG-Sendungen geliefert. Der bisherige Stand bleibt erhalten.")
-        ensureCurrentConfiguration(config, filter)
-        dao.replaceProgrammes(programmes)
-        ensureCurrentConfiguration(config, filter)
-        settings.markEpgRefresh()
-        _lastEpgError.value = null
+        val programmes = if (config.externalUrl.isNotBlank()) externalEpgLoader(config.externalUrl, keys) else {
+            repo.fetchProgrammes(keys) ?: throw EpgUnavailableException("Diese Quelle enthält keine EPG-Adresse (url-tvg/x-tvg-url).")
+        }
+        if (programmes.isEmpty()) {
+            if (config.externalUrl.isNotBlank()) error("Keine passenden EPG-Sendungen: Die XMLTV-Sender-IDs müssen mit den Senderkennungen der Liste übereinstimmen. Der bisherige Stand bleibt erhalten.")
+            error("Der Anbieter hat keine passenden EPG-Sendungen geliefert. Der bisherige Stand bleibt erhalten.")
+        }
+        commitEpg(programmes, config)
         Log.i(TAG, "EPG refreshed: ${programmes.size} programmes")
+    }
+
+    private suspend fun commitEpg(programmes: List<ProgrammeEntity>, config: EpgConfiguration) {
+        dao.replaceProgrammesIfCurrent(programmes) { ensureCurrentEpgConfiguration(config) }
+        if (!settings.markEpgRefreshIfCurrent(config.source, config.filter, config.externalUrl)) {
+            ensureCurrentEpgConfiguration(config)
+            throw EpgConfigurationChangedException()
+        }
+        _lastEpgError.value = null
     }
 
     private suspend fun refresh(force: Boolean, config: SourceConfig, filter: String, onCatalogueReady: () -> Unit) {
         val repo = repositoryFactory(config, filter)
+        val initialEpgUrl = settings.externalEpgUrl.first()
         val currentSourceKey = catalogueSourceKey(config, filter)
         val storedSourceKey = settings.catalogueSourceKey.first()
         // Adding the filter to the key is a format upgrade, not an intentional source change.
@@ -198,6 +212,7 @@ class PlaylistRefreshUseCase(
             etag = etag,
             lastModified = lastMod,
             onProgress = { _progress.value = it },
+            includeEpg = initialEpgUrl.isBlank(),
             onSectionReady = { section ->
                 ensureCurrentConfiguration(config, filter)
                 if (!section.successful) {
@@ -242,7 +257,8 @@ class PlaylistRefreshUseCase(
             settings.markRefreshSuccess()
             settings.markProviderRecovered()
             signalReady()
-            runCatchingCancellable { writeEpg(repo, config, filter) }.onFailure {
+            val epgConfig = EpgConfiguration(config, filter, settings.externalEpgUrl.first())
+            runCatchingCancellable { writeEpg(repo, epgConfig) }.onFailure {
                 if (it is SourceConfigurationChangedException) throw it
                 _lastEpgError.value = safeError(it)
             }
@@ -257,15 +273,23 @@ class PlaylistRefreshUseCase(
         }
         signalReady()
 
-        if (liveAccepted && snapshot.programmes.isNotEmpty()) {
-            ensureCurrentConfiguration(config, filter)
-            dao.replaceProgrammes(snapshot.programmes)
-            ensureCurrentConfiguration(config, filter)
-            settings.markEpgRefresh()
-            _lastEpgError.value = null
-        } else if (liveAccepted) {
-            _lastEpgError.value = snapshot.epgError
-                ?: "Der Anbieter hat keine passenden EPG-Sendungen geliefert. Der bisherige Stand bleibt erhalten."
+        if (liveAccepted) {
+            val epgConfig = EpgConfiguration(config, filter, settings.externalEpgUrl.first())
+            runCatchingCancellable {
+                if (epgConfig.externalUrl.isNotBlank() || initialEpgUrl.isNotBlank()) {
+                    // Read the latest EPG setting after the catalogue is accepted. Provider data
+                    // must never overwrite an override, including one saved during this import.
+                    writeEpg(repo, epgConfig)
+                } else if (snapshot.programmes.isNotEmpty()) {
+                    commitEpg(snapshot.programmes, epgConfig)
+                } else {
+                    _lastEpgError.value = snapshot.epgError
+                        ?: "Der Anbieter hat keine passenden EPG-Sendungen geliefert. Der bisherige Stand bleibt erhalten."
+                }
+            }.onFailure {
+                if (it is SourceConfigurationChangedException) throw it
+                _lastEpgError.value = safeError(it)
+            }
         }
         ensureCurrentConfiguration(config, filter)
 
@@ -285,6 +309,11 @@ class PlaylistRefreshUseCase(
         }
     }
 
+    private suspend fun ensureCurrentEpgConfiguration(config: EpgConfiguration) {
+        ensureCurrentConfiguration(config.source, config.filter)
+        if (settings.externalEpgUrl.first() != config.externalUrl) throw EpgConfigurationChangedException()
+    }
+
     private fun safeError(t: Throwable): String = HttpClient.redact(
         t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName,
     ).take(300)
@@ -297,6 +326,8 @@ class PlaylistRefreshUseCase(
 
     private class PartialRefreshException(message: String) : IllegalStateException(message)
     private class SourceConfigurationChangedException : IllegalStateException("Die Quelle wurde während der Aktualisierung geändert.")
+    private class EpgConfigurationChangedException : IllegalStateException("Die EPG-Adresse wurde während der Aktualisierung geändert. Bitte erneut synchronisieren.")
+    private data class EpgConfiguration(val source: SourceConfig, val filter: String, val externalUrl: String)
 
     companion object {
         private const val TAG = "PlaylistRefresh"

@@ -344,6 +344,14 @@ interface ChannelDao {
         programmes.chunked(1000).forEach { chunk -> insertProgrammes(chunk) }
     }
 
+    /** Keep a configuration change during insertion from committing an obsolete EPG snapshot. */
+    @Transaction
+    suspend fun replaceProgrammesIfCurrent(programmes: List<ProgrammeEntity>, checkCurrent: suspend () -> Unit) {
+        checkCurrent()
+        replaceProgrammes(programmes)
+        checkCurrent()
+    }
+
     @Query("DELETE FROM programmes")
     suspend fun clearProgrammes()
 

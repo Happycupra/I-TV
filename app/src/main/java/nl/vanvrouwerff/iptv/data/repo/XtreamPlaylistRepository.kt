@@ -56,6 +56,7 @@ class XtreamPlaylistRepository(
         etag: String?,
         lastModified: String?,
         onProgress: (ImportProgress) -> Unit,
+        includeEpg: Boolean,
         onSectionReady: suspend (PlaylistSectionResult) -> Unit,
     ): PlaylistSnapshot = withContext(Dispatchers.IO) {
         onProgress(ImportProgress(ImportProgress.Stage.Downloading, 0))
@@ -118,6 +119,7 @@ class XtreamPlaylistRepository(
             },
         )
 
+        if (!includeEpg) return@withContext PlaylistSnapshot(channels = live + vod + series)
         val keptEpgIds = live.mapNotNullTo(HashSet()) { it.epgChannelId }
         var epgError: String? = null
         val programmes: List<ProgrammeEntity> = runCatchingCancellable {

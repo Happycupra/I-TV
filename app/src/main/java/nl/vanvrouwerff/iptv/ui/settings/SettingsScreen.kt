@@ -67,6 +67,7 @@ fun SettingsScreen(
 ) {
     val state by vm.state.collectAsState()
     val compactScreen = isCompactTouchLayout()
+    val touchDevice = !LocalContext.current.isTelevision()
     var pinDialog by remember { mutableStateOf(false) }
 
     // BACK goes back without saving — matches the "Terug"-labelled button below, so the
@@ -138,8 +139,21 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = IptvPalette.TextSecondary,
                 )
-                Button(onClick = vm::syncEpg, enabled = !state.epgRefreshing) {
-                    Text(stringResource(if (state.epgRefreshing) R.string.guide_epg_syncing else R.string.guide_epg_sync))
+                OutlinedTextField(
+                    value = state.externalEpgUrl,
+                    onValueChange = vm::setExternalEpgUrl,
+                    label = { androidx.compose.material3.Text(stringResource(R.string.settings_epg_external_url)) },
+                    supportingText = {
+                        androidx.compose.material3.Text(state.epgUrlError ?: stringResource(R.string.settings_epg_external_hint))
+                    },
+                    isError = state.epgUrlError != null,
+                    enabled = !state.epgSaving && !state.saving,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, showKeyboardOnFocus = touchDevice),
+                    modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().tvKeyboardOnOk(),
+                )
+                Button(onClick = vm::syncEpg, enabled = !state.epgRefreshing && !state.epgSaving && !state.saving) {
+                    Text(stringResource(if (state.epgRefreshing || state.epgSaving) R.string.guide_epg_syncing else R.string.guide_epg_sync))
                 }
                 Text(
                     if (state.lastEpgRefreshAt > 0L) stringResource(
@@ -410,7 +424,7 @@ private fun SourceSection(
     }
 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { vm.save(onSaved) }, enabled = !state.saving) { Text(stringResource(R.string.settings_save)) }
+        Button(onClick = { vm.save(onSaved) }, enabled = !state.saving && !state.epgSaving) { Text(stringResource(R.string.settings_save)) }
         Button(onClick = vm::testConnection) {
             Text(stringResource(if (state.testing) R.string.settings_testing else R.string.settings_test))
         }

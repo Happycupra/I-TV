@@ -40,6 +40,9 @@ data class SettingsUiState(
     val epgRefreshing: Boolean = false,
     val lastEpgRefreshAt: Long = 0L,
     val epgError: String? = null,
+    val externalEpgUrl: String = "",
+    val epgUrlError: String? = null,
+    val epgSaving: Boolean = false,
     val maintenanceRunning: Boolean = false,
     val maintenanceMessage: String? = null,
     val autoRefreshEnabled: Boolean = false,
@@ -101,6 +104,7 @@ class SettingsViewModel : ViewModel() {
                     playerAspect = app.settings.playerAspect.first(),
                     audioLanguage = app.settings.preferredAudioLanguage.first(),
                     subtitleLanguage = app.settings.preferredSubtitleLanguage.first(),
+                    externalEpgUrl = app.settings.externalEpgUrl.first(),
                 )
             }
             // Only after the stored values are in: a phone submission must win over them.
@@ -182,6 +186,7 @@ class SettingsViewModel : ViewModel() {
     fun setUsername(v: String) { _state.update { it.copy(username = v, validationError = null) } }
     fun setPassword(v: String) { _state.update { it.copy(password = v, validationError = null) } }
     fun setCategoryFilter(v: String) { _state.update { it.copy(categoryFilter = v) } }
+    fun setExternalEpgUrl(v: String) { _state.update { it.copy(externalEpgUrl = v, epgUrlError = null) } }
 
     /** Validated source from the form fields, or null after setting a validation error. */
     private fun buildSource(): SourceConfig? {
@@ -250,7 +255,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun save(onDone: () -> Unit) {
-        if (_state.value.saving) return
+        if (_state.value.saving || _state.value.epgSaving) return
         val s = _state.value
         val newSource: SourceConfig = buildSource() ?: return
         _state.update { it.copy(saving = true, validationError = null) }
@@ -261,11 +266,13 @@ class SettingsViewModel : ViewModel() {
                 return@launch
             }
             val filterChanged = s.categoryFilter.trim() != initialCategoryFilter.trim()
+            val sourceChanged = newSource != initialSource
             // A new source (or filter) makes the cached catalogue wrong; refresh right away
             // instead of waiting for the 6h staleness check on the home screen.
-            if (newSource != initialSource || filterChanged) {
+            if (sourceChanged || filterChanged) {
                 initialSource = newSource
                 initialCategoryFilter = s.categoryFilter.trim()
+                if (sourceChanged) _state.update { it.copy(externalEpgUrl = "", epgUrlError = null) }
                 app.appScope.launch { app.refreshUseCase() }
             }
             _state.update { it.copy(saving = false, savedOnce = true) }
@@ -295,8 +302,34 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun syncEpg() {
-        if (_state.value.epgRefreshing) return
-        app.appScope.launch { app.refreshUseCase.refreshEpg(force = true) }
+        val current = _state.value
+        if (current.epgRefreshing || current.epgSaving || current.saving) return
+        val source = buildSource() ?: return
+        if (source != initialSource || current.categoryFilter.trim() != initialCategoryFilter.trim()) {
+            _state.update { it.copy(epgUrlError = app.getString(R.string.settings_epg_save_source_first)) }
+            return
+        }
+        val entered = current.externalEpgUrl.trim()
+        val address = if (entered.contains("://")) entered else "https://$entered"
+        val url = if (entered.isEmpty()) "" else address.toHttpUrlOrNull()?.toString()
+        if (url == null) {
+            _state.update { it.copy(epgUrlError = app.getString(R.string.settings_epg_invalid_url)) }
+            return
+        }
+        _state.update { it.copy(epgSaving = true, epgUrlError = null) }
+        app.appScope.launch {
+            try {
+                val saved = runCatchingCancellable { app.settings.setExternalEpgUrl(url) }
+                if (saved.isFailure) {
+                    _state.update { it.copy(epgUrlError = app.getString(R.string.settings_save_failed)) }
+                    return@launch
+                }
+                _state.update { it.copy(externalEpgUrl = url) }
+                app.refreshUseCase.refreshEpg(force = true)
+            } finally {
+                _state.update { it.copy(epgSaving = false) }
+            }
+        }
     }
 
     /** Clear bounded HTTP/image caches without changing user data or the catalogue. */
